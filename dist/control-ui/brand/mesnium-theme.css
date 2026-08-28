@@ -1,0 +1,434 @@
+/**
+ * MESNIUM DESIGN SYSTEM & THEME ENGINE
+ * 
+ * Strict compliance with the 30 Mesnium Design Rules:
+ * - Single Crimson (#b33d3f) accent on a pitch-black / neutral foundation.
+ * - Flat resting state: zero gradients, zero shadows at rest, depth only for active overlays.
+ * - Editorial serif typography for major outcome numbers.
+ * - Dense, information-rich tables with tight rhythm.
+ * - Quiet controls: data visually dominates.
+ */
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400&family=JetBrains+Mono:wght@400;500&display=swap');
+
+:root,
+html[data-theme-mode="dark"],
+html[data-theme="claw"],
+html[data-theme="openknot"],
+html[data-theme="dash"] {
+  /* Surface Palette: Pitch Black & Refined Neutrals */
+  --bg: #000000 !important;
+  --bg-accent: #070709 !important;
+  --bg-elevated: #0d0d11 !important;
+  --bg-hover: #14141a !important;
+  --bg-muted: #101014 !important;
+  --card: #08080b !important;
+  --card-foreground: #f4f4f6 !important;
+  --card-highlight: transparent !important;
+  --popover: #0d0d12 !important;
+  --popover-foreground: #f4f4f6 !important;
+  --panel: #000000 !important;
+  --panel-strong: #08080a !important;
+  --panel-hover: #121217 !important;
+  --chrome: #000000fa !important;
+  --chrome-strong: #000000 !important;
+
+  /* Typography Colors */
+  --text: #ceced6 !important;
+  --text-strong: #ffffff !important;
+  --chat-text: #d4d4dc !important;
+  --muted: #747480 !important;
+  --muted-strong: #90909c !important;
+  --muted-foreground: #747480 !important;
+
+  /* Structural Borders (Subtle 1px Outlines) */
+  --border: #16161f !important;
+  --border-strong: #22222e !important;
+  --border-hover: #323242 !important;
+  --input: #16161f !important;
+
+  /* Single Accent: Master Mesnium Crimson (#b33d3f) */
+  --ring: #b33d3f !important;
+  --accent: #b33d3f !important;
+  --accent-hover: #c5484a !important;
+  --accent-muted: #b33d3f !important;
+  --accent-subtle: rgba(179, 61, 63, 0.12) !important;
+  --accent-foreground: #ffffff !important;
+  --accent-glow: transparent !important;
+  --selection-bg: rgba(179, 61, 63, 0.35) !important;
+  --selection-fg: #ffffff !important;
+
+  /* Controls */
+  --primary: #b33d3f !important;
+  --primary-foreground: #ffffff !important;
+  --secondary: #101015 !important;
+  --secondary-foreground: #e4e4e8 !important;
+  --accent-2: #848490 !important;
+  --accent-2-muted: #5a5a64 !important;
+  --accent-2-subtle: rgba(255, 255, 255, 0.04) !important;
+
+  /* Status Colors */
+  --ok: #2e8b57 !important;
+  --ok-muted: rgba(46, 139, 87, 0.7) !important;
+  --ok-subtle: rgba(46, 139, 87, 0.1) !important;
+  --warn: #c27803 !important;
+  --warn-muted: rgba(194, 120, 3, 0.7) !important;
+  --warn-subtle: rgba(194, 120, 3, 0.1) !important;
+  --destructive: #b33d3f !important;
+  --destructive-foreground: #ffffff !important;
+  --danger: #b33d3f !important;
+  --danger-muted: rgba(179, 61, 63, 0.7) !important;
+  --danger-subtle: rgba(179, 61, 63, 0.1) !important;
+  --info: #7c7c88 !important;
+
+  /* Focus & Elevation */
+  --focus: rgba(179, 61, 63, 0.25) !important;
+  --focus-ring: 0 0 0 2px #000000, 0 0 0 3px #b33d3f !important;
+  --focus-glow: 0 0 0 2px #000000, 0 0 0 3px #b33d3f !important;
+  --grid-line: rgba(255, 255, 255, 0.02) !important;
+
+  /* Typography Families */
+  --font-body: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
+  --font-display: 'Newsreader', 'Georgia', 'Playfair Display', serif !important;
+  --mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace !important;
+
+  /* Flat Resting Surfaces */
+  --shadow-sm: none !important;
+  --shadow-md: none !important;
+  --shadow-lg: none !important;
+  --shadow-xl: 0 20px 60px rgba(0, 0, 0, 0.9) !important; /* Active modal depth only */
+  --shadow-glow: none !important;
+
+  /* Radii */
+  --radius-sm: 2px !important;
+  --radius-md: 4px !important;
+  --radius-lg: 6px !important;
+  --radius-xl: 8px !important;
+  --radius-full: 9999px !important;
+  --radius: 4px !important;
+}
+
+/* Light Mode: Restrained Warm Editorial Business Paper */
+html[data-theme-mode="light"],
+html[data-theme="openknot-light"],
+html[data-theme="dash-light"] {
+  --bg: #fbfbfa !important;
+  --bg-accent: #f4f3f0 !important;
+  --bg-elevated: #ffffff !important;
+  --bg-hover: #eceae5 !important;
+  --bg-muted: #eceae5 !important;
+  --card: #ffffff !important;
+  --card-foreground: #121216 !important;
+  --popover: #ffffff !important;
+  --popover-foreground: #121216 !important;
+  --panel: #fbfbfa !important;
+  --panel-strong: #f4f3f0 !important;
+  --panel-hover: #eceae5 !important;
+  --text: #3c3c44 !important;
+  --text-strong: #121216 !important;
+  --chat-text: #3c3c44 !important;
+  --muted: #6e6e78 !important;
+  --muted-strong: #52525c !important;
+  --border: #e2dfd7 !important;
+  --border-strong: #cdc9be !important;
+  --border-hover: #b4ae9f !important;
+  --input: #e2dfd7 !important;
+  --accent: #b33d3f !important;
+  --accent-hover: #9c3234 !important;
+  --ring: #b33d3f !important;
+  --primary: #b33d3f !important;
+  --primary-foreground: #ffffff !important;
+  --secondary: #f4f3f0 !important;
+  --secondary-foreground: #121216 !important;
+  --shadow-sm: none !important;
+  --shadow-md: none !important;
+  --shadow-lg: none !important;
+  --shadow-xl: 0 16px 40px rgba(0, 0, 0, 0.15) !important;
+}
+
+/* Global Elements */
+html, body {
+  background: var(--bg) !important;
+  color: var(--text) !important;
+  font-family: var(--font-body) !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+/* ==========================================================================
+   1. SHELL & NAVIGATION
+   ========================================================================== */
+
+.sidebar, openclaw-app-sidebar {
+  background: var(--bg) !important;
+  border-right: 1px solid var(--border) !important;
+}
+
+.sidebar-brand {
+  padding: 16px 14px 12px 14px !important;
+  border-bottom: 1px solid var(--border) !important;
+  display: flex !important;
+  align-items: center !important;
+  gap: 10px !important;
+}
+
+.sidebar-brand__logo, .topbar-brand__logo, .login-gate__logo {
+  width: 24px !important;
+  height: 24px !important;
+  border-radius: 3px !important;
+  object-fit: contain !important;
+  background: transparent !important;
+}
+
+.sidebar-brand__title {
+  font-family: var(--font-body) !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.08em !important;
+  text-transform: uppercase !important;
+  font-size: 13px !important;
+  color: var(--text-strong) !important;
+}
+
+.topbar, dashboard-header, openclaw-app-topbar {
+  background: var(--bg) !important;
+  border-bottom: 1px solid var(--border) !important;
+}
+
+.topbar-brand__title, .dashboard-header__breadcrumb-link {
+  font-weight: 600 !important;
+  color: var(--text-strong) !important;
+  letter-spacing: 0.03em !important;
+}
+
+/* Quiet Nav Links */
+.sidebar-recent-session__link, .nav-item {
+  border-radius: 3px !important;
+  font-size: 12.5px !important;
+  padding: 6px 10px !important;
+  color: var(--muted-strong) !important;
+  transition: background var(--duration-fast) ease, color var(--duration-fast) ease !important;
+}
+
+.sidebar-recent-session__link:hover, .nav-item:hover {
+  background: var(--bg-hover) !important;
+  color: var(--text-strong) !important;
+}
+
+.sidebar-recent-session--active .sidebar-recent-session__link,
+.nav-item--active {
+  background: var(--bg-elevated) !important;
+  color: var(--text-strong) !important;
+  border-left: 2px solid var(--accent) !important;
+}
+
+/* ==========================================================================
+   2. HERO METRICS & OVERVIEW PRESENTATION (RULES 1, 2, 3, 11)
+   ========================================================================== */
+
+/* Editorial Serif for Big Business Outcomes */
+.ov-card__value, .stat-value, .hero-metric-number, .money-number {
+  font-family: var(--font-display) !important;
+  font-size: 36px !important;
+  font-weight: 500 !important;
+  line-height: 1.1 !important;
+  letter-spacing: -0.02em !important;
+  color: var(--text-strong) !important;
+}
+
+.ov-card__label, .stat-label {
+  font-family: var(--font-body) !important;
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.08em !important;
+  color: var(--muted) !important;
+  margin-bottom: 4px !important;
+}
+
+.ov-card__hint {
+  font-size: 12px !important;
+  color: var(--muted) !important;
+  margin-top: 4px !important;
+}
+
+/* Clean Flat Cards */
+.card, .ov-card, .section-card, .login-gate__panel {
+  background: var(--card) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: var(--radius-md) !important;
+  box-shadow: none !important;
+  padding: 18px !important;
+}
+
+.card:hover, .section-card:hover {
+  border-color: var(--border-strong) !important;
+}
+
+/* ==========================================================================
+   3. DENSE TABLES & LISTS (RULES 7, 8, 9, 12, 14)
+   ========================================================================== */
+
+.table, table {
+  width: 100% !important;
+  border-collapse: collapse !important;
+  font-size: 12.5px !important;
+}
+
+.table-head th, th {
+  background: var(--bg-accent) !important;
+  color: var(--muted) !important;
+  font-weight: 600 !important;
+  font-size: 11px !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.06em !important;
+  padding: 8px 12px !important;
+  border-bottom: 1px solid var(--border) !important;
+  text-align: left !important;
+}
+
+.table-row td, td, .list-item {
+  padding: 8px 12px !important;
+  border-bottom: 1px solid var(--border) !important;
+  color: var(--text) !important;
+}
+
+.table-row:hover, .list-item:hover {
+  background: var(--bg-hover) !important;
+}
+
+/* ==========================================================================
+   4. QUIET CONTROLS & INTERACTIVE BUTTON STATES (RULES 15, 16, 20)
+   ========================================================================== */
+
+.btn, button.primary, button.secondary, .login-gate__btn {
+  font-family: var(--font-body) !important;
+  font-size: 12.5px !important;
+  font-weight: 500 !important;
+  padding: 6px 14px !important;
+  border-radius: var(--radius-sm) !important;
+  border: 1px solid transparent !important;
+  cursor: pointer !important;
+  box-shadow: none !important;
+  transition: background var(--duration-fast) ease, border-color var(--duration-fast) ease, transform 0.08s ease !important;
+}
+
+/* Primary Crimson Action Button */
+.btn--primary, button.btn-primary, button.primary, .login-gate__btn {
+  background: var(--accent) !important;
+  color: #ffffff !important;
+  border-color: var(--accent) !important;
+}
+
+.btn--primary:hover, button.btn-primary:hover, button.primary:hover, .login-gate__btn:hover {
+  background: var(--accent-hover) !important;
+  border-color: var(--accent-hover) !important;
+}
+
+.btn--primary:active, button.btn-primary:active, button.primary:active, .login-gate__btn:active {
+  transform: scale(0.98) !important;
+}
+
+/* Secondary Buttons */
+.btn--secondary, button.btn-secondary, button.secondary, .btn--ghost {
+  background: var(--bg-elevated) !important;
+  color: var(--text-strong) !important;
+  border: 1px solid var(--border) !important;
+}
+
+.btn--secondary:hover, button.btn-secondary:hover, button.secondary:hover, .btn--ghost:hover {
+  background: var(--bg-hover) !important;
+  border-color: var(--border-strong) !important;
+}
+
+/* Input Fields */
+input, textarea, select {
+  background: var(--bg-accent) !important;
+  border: 1px solid var(--border) !important;
+  color: var(--text-strong) !important;
+  border-radius: var(--radius-sm) !important;
+  padding: 7px 10px !important;
+  font-size: 13px !important;
+  font-family: var(--font-body) !important;
+}
+
+input:focus, textarea:focus, select:focus {
+  border-color: var(--accent) !important;
+  outline: none !important;
+}
+
+/* ==========================================================================
+   5. CHAT STUDIO & WORKSPACE (RULES 3, 19, 21, 24)
+   ========================================================================== */
+
+.chat-pane {
+  background: var(--bg) !important;
+}
+
+.chat-message {
+  border: none !important;
+  box-shadow: none !important;
+  padding: 12px 16px !important;
+  margin-bottom: 8px !important;
+  border-radius: var(--radius-md) !important;
+  line-height: 1.6 !important;
+}
+
+.chat-message--user {
+  background: var(--bg-elevated) !important;
+  border: 1px solid var(--border) !important;
+}
+
+.chat-message--assistant {
+  background: transparent !important;
+  border: 1px solid transparent !important;
+}
+
+.chat-composer {
+  background: var(--card) !important;
+  border: 1px solid var(--border-strong) !important;
+  border-radius: var(--radius-md) !important;
+  box-shadow: none !important;
+}
+
+.chat-composer:focus-within {
+  border-color: var(--accent) !important;
+}
+
+/* ==========================================================================
+   6. MODAL DEPTH & ACTIVE OVERLAYS (RULE 6, 11)
+   ========================================================================== */
+
+.backdrop {
+  background: rgba(0, 0, 0, 0.8) !important;
+  backdrop-filter: blur(4px) !important;
+}
+
+.modal, .dialog, openclaw-modal-dialog {
+  background: var(--popover) !important;
+  border: 1px solid var(--border-strong) !important;
+  border-radius: var(--radius-lg) !important;
+  box-shadow: var(--shadow-xl) !important;
+}
+
+/* Status Badges */
+.badge, .pill, .chip {
+  border-radius: 2px !important;
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.05em !important;
+  padding: 2px 6px !important;
+  border: 1px solid var(--border) !important;
+  background: var(--bg-elevated) !important;
+  color: var(--text) !important;
+}
+
+.badge--approved, .badge--done, .badge--ok {
+  border-color: rgba(46, 139, 87, 0.4) !important;
+  color: #4ade80 !important;
+}
+
+.badge--blocked, .badge--danger {
+  border-color: rgba(179, 61, 63, 0.4) !important;
+  color: #f87171 !important;
+}

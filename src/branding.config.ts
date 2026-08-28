@@ -36,10 +36,10 @@ export const MESNIUM_BRANDING: MesniumProductBranding = {
   productDescription: "Intelligent multimodal desktop agent, document intelligence, and omnichannel workspace.",
   version: "1.0.0-alpha",
   assets: {
-    logo: "/brand/logo.svg",
-    icon: "/brand/icon.svg",
-    favicon: "/brand/favicon.ico",
-    appleTouchIcon: "/brand/apple-touch-icon.png"
+    logo: "/brand/logo.png",
+    icon: "/brand/icon.png",
+    favicon: "/favicon.svg",
+    appleTouchIcon: "/apple-touch-icon.png"
   },
   links: {
     website: "https://mesnium.ai",
