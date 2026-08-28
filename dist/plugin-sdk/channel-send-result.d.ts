@@ -1,0 +1,3 @@
+import { b as OutboundDeliveryResult, n as ChannelOutboundAdapter } from "../outbound.types-BYVjEb44.js";
+import { a as createAttachedChannelResultAdapter, i as buildChannelSendResult, n as attachChannelToResult, o as createEmptyChannelResult, r as attachChannelToResults, s as createRawChannelSendResultAdapter, t as ChannelSendRawResult } from "../channel-send-result-B-8XzVha.js";
+export { type ChannelOutboundAdapter, ChannelSendRawResult, type OutboundDeliveryResult, attachChannelToResult, attachChannelToResults, buildChannelSendResult, createAttachedChannelResultAdapter, createEmptyChannelResult, createRawChannelSendResultAdapter };

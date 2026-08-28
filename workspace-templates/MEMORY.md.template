@@ -1,0 +1,17 @@
+# Long-Term Context & User Memory (Template)
+
+## User Profile
+- **Name:** [User Name]
+- **Role:** [User Role / Title]
+- **Primary Projects:**
+  - **Project A:** Description
+  - **Project B:** Description
+
+## Connected Accounts & Infrastructure
+- **Google Workspace:** [User Email] (Gmail, Calendar, Drive, Sheets, Docs).
+- **Environment:** Windows, Google Vertex AI (Gemini 2.5 Flash runtime via ADC).
+
+## Operating Preferences & Guardrails
+- **Action-oriented & reliable:** Deliver working solutions with safe defaults.
+- **Confirmation Boundaries:** Always confirm before executing consequential or destructive actions (sending external emails, deleting emails, mutating/deleting calendar events, deleting files, or modifying critical configs). Read-only queries execute autonomously.
+- **Communication:** Concise, clear, structured, and direct.

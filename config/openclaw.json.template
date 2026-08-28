@@ -1,0 +1,102 @@
+{
+  "$schema": "https://raw.githubusercontent.com/openclaw/openclaw/main/schema.json",
+  "agents": {
+    "defaults": {
+      "workspace": "${USERPROFILE}\\.openclaw\\workspace",
+      "model": {
+        "primary": "google-vertex/gemini-2.5-flash"
+      },
+      "models": {
+        "google-vertex/gemini-2.5-flash": {}
+      },
+      "memorySearch": {
+        "enabled": true,
+        "provider": "none"
+      },
+      "maxConcurrent": 4,
+      "subagents": {
+        "maxConcurrent": 8,
+        "archiveAfterMinutes": 60
+      },
+      "compaction": {
+        "mode": "safeguard"
+      }
+    }
+  },
+  "gateway": {
+    "mode": "local",
+    "auth": {
+      "mode": "token",
+      "token": "REPLACE_WITH_GENERATED_GATEWAY_TOKEN"
+    },
+    "port": 18789,
+    "bind": "loopback",
+    "tailscale": {
+      "mode": "off",
+      "resetOnExit": false
+    },
+    "controlUi": {
+      "allowInsecureAuth": true
+    },
+    "nodes": {
+      "denyCommands": [
+        "camera.snap",
+        "camera.clip",
+        "screen.record",
+        "contacts.add",
+        "calendar.add",
+        "reminders.add",
+        "sms.send",
+        "sms.search"
+      ]
+    }
+  },
+  "session": {
+    "scope": "per-sender",
+    "dmScope": "main",
+    "reset": {
+      "mode": "daily",
+      "atHour": 4,
+      "idleMinutes": 1440
+    }
+  },
+  "tools": {
+    "profile": "coding",
+    "web": {
+      "search": {
+        "provider": "duckduckgo"
+      }
+    }
+  },
+  "plugins": {
+    "entries": {
+      "google": {
+        "enabled": true,
+        "config": {}
+      }
+    }
+  },
+  "skills": {
+    "entries": {
+      "gog": {
+        "enabled": true
+      },
+      "weather": {
+        "enabled": false
+      },
+      "summarize": {
+        "enabled": false
+      },
+      "model-usage": {
+        "enabled": false
+      }
+    }
+  },
+  "memory": {
+    "backend": "builtin",
+    "citations": "auto"
+  },
+  "cron": {
+    "maxConcurrentRuns": 8
+  }
+}

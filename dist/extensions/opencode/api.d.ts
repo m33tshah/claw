@@ -1,0 +1,3 @@
+import { n as OPENCODE_ZEN_DEFAULT_MODEL, o as applyOpencodeZenModelDefault } from "../../provider-onboard-iZF5yH33.js";
+import { n as applyOpencodeZenConfig, r as applyOpencodeZenProviderConfig, t as OPENCODE_ZEN_DEFAULT_MODEL_REF } from "../../onboard-Csv-qDKJ.js";
+export { OPENCODE_ZEN_DEFAULT_MODEL, OPENCODE_ZEN_DEFAULT_MODEL_REF, applyOpencodeZenConfig, applyOpencodeZenModelDefault, applyOpencodeZenProviderConfig };

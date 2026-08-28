@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "socket": {
+    "path": "${USERPROFILE}\\.openclaw\\exec-approvals.sock",
+    "token": "REPLACE_WITH_LOCAL_SOCKET_TOKEN"
+  },
+  "defaults": {
+    "security": "prompt",
+    "ask": "on-miss"
+  },
+  "agents": {
+    "main": {
+      "security": "prompt",
+      "ask": "on-miss"
+    }
+  }
+}

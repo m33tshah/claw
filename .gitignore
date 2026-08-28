@@ -1,0 +1,97 @@
+# ==============================================================================
+# Claw (.gitignore) - Strict Secret, Credential, & Local Runtime Exclusion
+# ==============================================================================
+
+# Dependencies
+node_modules/
+.pnpm-store/
+.npm/
+
+# Environment and Secret Files
+.env
+.env.*
+!.env.example
+*.env
+*.env.local
+*.local
+
+# Credentials, Keys, & Certificates
+credentials/
+tokens/
+oauth/
+keys/
+*.pem
+*.key
+*.p12
+*.pfx
+*.pkcs12
+*.crt
+*.cer
+*.pub
+*secret*
+*credential*
+*token*
+!docs/*credential*
+!docs/*token*
+!config/*.template
+
+# OpenClaw Local State & Databases
+*.sqlite
+*.sqlite-*
+*.sqlite-journal
+*.sqlite-wal
+*.sqlite-shm
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+state/
+agents/
+devices/
+identity/
+media/
+push/
+skill-workshop/
+tui/
+workspace-attestations/
+worktrees/
+tmp/
+temp/
+scratch/
+.system_generated/
+*.sock
+
+# Logs & Audit Dumps
+logs/
+*.log
+audit/
+*.jsonl
+*.zst
+
+# Personal Memory & Private Transcripts
+MEMORY.md
+memory/
+sessions/
+trajectories/
+*.trajectory.jsonl
+
+# Build & Cache Artifacts
+dist/.tsbuildinfo
+dist/.buildstamp
+dist/.runtime-postbuildstamp
+dist/**/*.map
+.cache/
+.parcel-cache/
+.turbo/
+
+# OS and Editor State
+.DS_Store
+Thumbs.db
+desktop.ini
+*.swp
+*.swo
+*~
+.idea/
+.vscode/
+!.vscode/settings.json
+!.vscode/extensions.json
