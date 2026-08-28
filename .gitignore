@@ -95,3 +95,8 @@ desktop.ini
 .vscode/
 !.vscode/settings.json
 !.vscode/extensions.json
+
+# Backups & Scratch Tests
+*.bak
+*.bak_*
+test_files/

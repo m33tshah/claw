@@ -1084,6 +1084,7 @@ function createOpenClawCodingTools(options) {
 				continue;
 			}
 			const wrapped = createOpenClawReadTool(createReadTool(codingRoot), {
+				root: codingRoot,
 				modelContextWindowTokens: options?.modelContextWindowTokens,
 				imageSanitization
 			});

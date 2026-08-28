@@ -214,10 +214,11 @@ function sanitizeChatHistoryContentBlock(block, opts) {
 	const entry = { ...block };
 	let changed = false;
 	const preserveExactToolPayload = opts?.preserveExactToolPayload === true || isToolHistoryBlockType(entry.type);
+	const isConversationalBlock = entry.type === "text" || entry.type === "input_text" || entry.type === "output_text";
 	const maxChars = opts?.maxChars ?? 8e3;
 	if (typeof entry.text === "string") {
 		const stripped = stripInlineDirectiveTagsForDisplay(entry.text);
-		if (preserveExactToolPayload) {
+		if (preserveExactToolPayload || isConversationalBlock) {
 			entry.text = stripped.text;
 			changed ||= stripped.changed;
 		} else {
@@ -228,7 +229,7 @@ function sanitizeChatHistoryContentBlock(block, opts) {
 	}
 	if (typeof entry.content === "string") {
 		const stripped = stripInlineDirectiveTagsForDisplay(entry.content);
-		if (preserveExactToolPayload) {
+		if (preserveExactToolPayload || isConversationalBlock) {
 			entry.content = stripped.text;
 			changed ||= stripped.changed;
 		} else {
@@ -314,10 +315,10 @@ function projectAssistantTextFromMixedToolContent(content, maxChars) {
 		if (!block || typeof block !== "object") continue;
 		const entry = block;
 		if (entry.type !== "text" || typeof entry.text !== "string" || !entry.text.trim()) continue;
-		const truncated = truncateChatHistoryText(stripInlineDirectiveTagsForDisplay(entry.text).text, maxChars);
-		if (truncated.text.trim()) textBlocks.push({
+		const stripped = stripInlineDirectiveTagsForDisplay(entry.text).text;
+		if (stripped.trim()) textBlocks.push({
 			type: "text",
-			text: truncated.text
+			text: stripped
 		});
 	}
 	return textBlocks.length > 0 ? {
@@ -385,6 +386,7 @@ function sanitizeChatHistoryMessage(message, maxChars = DEFAULT_CHAT_HISTORY_TEX
 	let changed = false;
 	const role = typeof entry.role === "string" ? entry.role.toLowerCase() : "";
 	const preserveExactToolPayload = role === "toolresult" || role === "tool_result" || role === "tool" || role === "function" || typeof entry.toolName === "string" || typeof entry.tool_name === "string" || typeof entry.toolCallId === "string" || typeof entry.tool_call_id === "string";
+	const isConversationalRole = role === "assistant" || role === "user" || role === "system";
 	if ("details" in entry) {
 		delete entry.details;
 		changed = true;
@@ -414,7 +416,7 @@ function sanitizeChatHistoryMessage(message, maxChars = DEFAULT_CHAT_HISTORY_TEX
 	}
 	if (typeof entry.content === "string") {
 		const stripped = stripInlineDirectiveTagsForDisplay(entry.content);
-		if (preserveExactToolPayload) {
+		if (preserveExactToolPayload || isConversationalRole) {
 			entry.content = stripped.text;
 			changed ||= stripped.changed;
 		} else {
@@ -448,7 +450,7 @@ function sanitizeChatHistoryMessage(message, maxChars = DEFAULT_CHAT_HISTORY_TEX
 	}
 	if (typeof entry.text === "string") {
 		const stripped = stripInlineDirectiveTagsForDisplay(entry.text);
-		if (preserveExactToolPayload) {
+		if (preserveExactToolPayload || isConversationalRole) {
 			entry.text = stripped.text;
 			changed ||= stripped.changed;
 		} else {

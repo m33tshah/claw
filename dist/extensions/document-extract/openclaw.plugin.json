@@ -5,10 +5,16 @@
   },
   "enabledByDefault": true,
   "name": "Document Extraction",
-  "description": "Extract text and fallback page images from local document attachments.",
+  "description": "Extract text, structured tables, and metadata from local document attachments (PDF, DOCX, XLSX, PPTX, CSV, TSV, JSON, Archives).",
   "contracts": {
     "documentExtractors": [
-      "pdf"
+      "pdf",
+      "docx",
+      "xlsx",
+      "pptx",
+      "tabular",
+      "json",
+      "archive"
     ]
   },
   "configSchema": {

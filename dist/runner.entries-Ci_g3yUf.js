@@ -760,8 +760,25 @@ const DEFAULT_INPUT_FILE_MIMES = [
 	"text/markdown",
 	"text/html",
 	"text/csv",
+	"text/tab-separated-values",
+	"text/tsv",
 	"application/json",
-	"application/pdf"
+	"application/pdf",
+	"application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+	"application/msword",
+	"application/docx",
+	"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+	"application/vnd.ms-excel",
+	"application/xlsx",
+	"application/vnd.openxmlformats-officedocument.presentationml.presentation",
+	"application/vnd.ms-powerpoint",
+	"application/pptx",
+	"application/zip",
+	"application/x-zip-compressed",
+	"application/x-tar",
+	"application/gzip",
+	"application/x-gzip",
+	"application/x-compressed-tar"
 ];
 /** Default decoded-byte cap for input_image payloads. */
 const DEFAULT_INPUT_IMAGE_MAX_BYTES = 10 * 1024 * 1024;
@@ -997,26 +1014,34 @@ async function extractFileContentFromSource(params) {
 	});
 	if (!mimeType) throw new Error("input_file missing media type");
 	if (!limits.allowedMimes.has(mimeType)) throw new Error(`Unsupported file MIME type: ${mimeType}`);
-	if (mimeType === "application/pdf") {
-		const extracted = await withInputFileTimeout({
-			label: "PDF extraction",
-			timeoutMs: limits.timeoutMs,
-			task: extractPdfContent({
-				buffer,
-				maxPages: limits.pdf.maxPages,
-				maxPixels: limits.pdf.maxPixels,
-				minTextChars: limits.pdf.minTextChars,
-				...params.config ? { config: params.config } : {},
-				onImageExtractionError: (err) => {
-					logWarn(`media: PDF image extraction skipped, ${String(err)}`);
-				}
-			})
-		});
-		return {
-			filename,
-			text: extracted.text ? clampText(extracted.text, limits.maxChars) : "",
-			images: extracted.images.length > 0 ? extracted.images : void 0
-		};
+	if (mimeType === "application/pdf" || mimeType.includes("wordprocessingml") || mimeType.includes("spreadsheetml") || mimeType.includes("presentationml") || mimeType.includes("zip") || mimeType.includes("tar") || mimeType.includes("gzip") || mimeType === "application/msword" || mimeType === "application/vnd.ms-excel" || mimeType === "application/vnd.ms-powerpoint" || mimeType === "application/docx" || mimeType === "application/xlsx" || mimeType === "application/pptx") {
+		let extractedDoc;
+		try {
+			extractedDoc = await withInputFileTimeout({
+				label: "Document extraction",
+				timeoutMs: limits.timeoutMs,
+				task: extractDocumentContent({
+					buffer,
+					mimeType,
+					maxPages: limits.pdf?.maxPages,
+					maxPixels: limits.pdf?.maxPixels,
+					minTextChars: limits.pdf?.minTextChars,
+					...params.config ? { config: params.config } : {},
+					onImageExtractionError: (err) => {
+						logWarn(`media: Document image extraction skipped, ${String(err)}`);
+					}
+				})
+			});
+		} catch (err) {
+			logWarn(`media: Document extraction error: ${String(err)}`);
+		}
+		if (extractedDoc && (extractedDoc.text || extractedDoc.images?.length)) {
+			return {
+				filename,
+				text: extractedDoc.text ? clampText(extractedDoc.text, limits.maxChars) : "",
+				images: extractedDoc.images?.length > 0 ? extractedDoc.images : void 0
+			};
+		}
 	}
 	return {
 		filename,

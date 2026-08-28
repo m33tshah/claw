@@ -321,6 +321,37 @@ function buildSyntheticSkippedAudioOutputs(decisions) {
 		}];
 	});
 }
+const SUPPORTED_DOC_EXTS = new Set([
+	".docx", ".doc",
+	".xlsx", ".xls",
+	".pptx", ".ppt",
+	".pdf",
+	".csv", ".tsv",
+	".json",
+	".zip", ".tar", ".gz", ".tgz"
+]);
+
+function isSupportedDocumentExtension(name) {
+	if (!name) return false;
+	const lower = name.toLowerCase();
+	for (const ext of SUPPORTED_DOC_EXTS) {
+		if (lower.endsWith(ext)) return true;
+	}
+	return false;
+}
+
+function isSupportedDocumentMime(mime) {
+	if (!mime) return false;
+	const m = mime.toLowerCase();
+	return m === "application/pdf" ||
+		m.includes("wordprocessingml") || m === "application/msword" || m === "application/docx" ||
+		m.includes("spreadsheetml") || m === "application/vnd.ms-excel" || m === "application/xlsx" ||
+		m.includes("presentationml") || m === "application/vnd.ms-powerpoint" || m === "application/pptx" ||
+		m.includes("csv") || m.includes("tsv") || m.includes("tab-separated") ||
+		m.includes("json") ||
+		m.includes("zip") || m.includes("tar") || m.includes("gzip");
+}
+
 function isBinaryMediaMime(mime) {
 	if (!mime) return false;
 	if (mime.startsWith("image/") || mime.startsWith("audio/") || mime.startsWith("video/")) return true;
@@ -366,14 +397,17 @@ async function extractFileContext(params) {
 		const forcedTextMimeResolved = forcedTextMime ?? resolveTextMimeFromName(nameHint ?? "");
 		const rawMime = bufferResult?.mime ?? attachment.mime;
 		const normalizedRawMime = normalizeMimeType(rawMime);
-		if (!forcedTextMimeResolved && isBinaryMediaMime(normalizedRawMime)) continue;
-		if (hasSuspiciousBinarySignal(bufferResult?.buffer)) continue;
+		const isSupportedDoc = isSupportedDocumentMime(normalizedRawMime) || isSupportedDocumentExtension(nameHint);
+		if (!isSupportedDoc) {
+			if (!forcedTextMimeResolved && isBinaryMediaMime(normalizedRawMime)) continue;
+			if (hasSuspiciousBinarySignal(bufferResult?.buffer)) continue;
+		}
 		const utf16Charset = resolveUtf16Charset(bufferResult?.buffer);
 		const textSample = decodeTextSample(bufferResult?.buffer);
-		const textLike = normalizedRawMime !== "application/pdf" && (Boolean(utf16Charset) || looksLikeUtf8Text(bufferResult?.buffer));
+		const textLike = normalizedRawMime !== "application/pdf" && !isSupportedDoc && (Boolean(utf16Charset) || looksLikeUtf8Text(bufferResult?.buffer));
 		const guessedDelimited = textLike ? guessDelimitedMime(textSample) : void 0;
 		const textHint = forcedTextMimeResolved ?? guessedDelimited ?? (textLike ? "text/plain" : void 0);
-		const mimeType = sanitizeMimeType(textHint ?? normalizeMimeType(rawMime));
+		const mimeType = sanitizeMimeType(isSupportedDoc && normalizedRawMime ? normalizedRawMime : (textHint ?? normalizeMimeType(rawMime)));
 		if (textHint && rawMime && !rawMime.startsWith("text/")) logVerbose(`media: MIME override from "${rawMime}" to "${textHint}" for index=${attachment.index}`);
 		if (!mimeType) {
 			if (shouldLogVerbose()) logVerbose(`media: file attachment skipped (unknown mime) index=${attachment.index}`);
@@ -383,6 +417,7 @@ async function extractFileContext(params) {
 		if (!limits.allowedMimesConfigured) {
 			for (const extra of EXTRA_TEXT_MIMES) allowedMimes.add(extra);
 			if (mimeType.startsWith("text/")) allowedMimes.add(mimeType);
+			if (isSupportedDoc) allowedMimes.add(mimeType);
 		}
 		if (!allowedMimes.has(mimeType)) {
 			if (shouldLogVerbose()) logVerbose(`media: file attachment skipped (unsupported mime ${mimeType}) index=${attachment.index}`);

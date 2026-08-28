@@ -757,10 +757,43 @@ function createHostWorkspaceEditTool(root, options) {
 function createOpenClawReadTool(base, options) {
 	return {
 		...base,
+		description: base.description,
 		execute: async (toolCallId, params, signal) => {
 			const record = getToolParamsRecord(params);
 			const normalizedRecord = record ? normalizeFileToolPathParamsFromKeys(record, ["path"]) : void 0;
 			assertRequiredParams(normalizedRecord, REQUIRED_PARAM_GROUPS.read, base.name);
+			const filePath = typeof normalizedRecord?.path === "string" ? normalizedRecord.path : "<unknown>";
+			try {
+				const lowerPath = filePath.toLowerCase();
+				const docExts = [".docx", ".doc", ".xlsx", ".xls", ".pptx", ".ppt", ".pdf", ".zip", ".tar", ".gz", ".tgz"];
+				if (docExts.some((ext) => lowerPath.endsWith(ext))) {
+					const nodePath = await import("node:path");
+					const nodeFs = await import("node:fs");
+					const { extractGeneralFile } = await import("./extensions/document-extract/document-extractor.js");
+					const candidatePath = resolveToolPathAgainstWorkspaceRoot({
+						filePath,
+						root: typeof options?.root === "string" ? options.root : process.cwd()
+					});
+					const targetPath = nodeFs.existsSync(candidatePath) ? candidatePath : (nodeFs.existsSync(filePath) ? filePath : candidatePath);
+					if (nodeFs.existsSync(targetPath)) {
+						const buffer = await nodeFs.promises.readFile(targetPath);
+						const extracted = await extractGeneralFile({
+							buffer,
+							fileName: nodePath.basename(targetPath)
+						});
+						if (extracted && typeof extracted.text === "string" && extracted.text.trim()) {
+							return {
+								content: [{
+									type: "text",
+									text: extracted.text
+								}],
+								details: {}
+							};
+						}
+					}
+				}
+			} catch {
+			}
 			const result = await executeReadWithAdaptivePaging({
 				base,
 				toolCallId,
@@ -768,7 +801,6 @@ function createOpenClawReadTool(base, options) {
 				signal,
 				maxBytes: resolveAdaptiveReadMaxBytes(options)
 			});
-			const filePath = typeof normalizedRecord?.path === "string" ? normalizedRecord.path : "<unknown>";
 			return sanitizeToolResultImages(await normalizeReadImageResult(stripReadTruncationContentDetails(result), filePath), `read:${filePath}`, options?.imageSanitization);
 		}
 	};
