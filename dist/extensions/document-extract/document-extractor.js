@@ -565,12 +565,13 @@ function createArchiveDocumentExtractor() {
 }
 
 // Unified direct ingestor
-async function extractGeneralFile({ buffer, mimeType, fileName }) {
-	const lower = (fileName || "").toLowerCase();
+async function extractGeneralFile({ buffer, mimeType, fileName, filename }) {
+	const effectiveName = fileName || filename || "";
+	const lower = effectiveName.toLowerCase();
 	const req = {
 		buffer,
 		mimeType: mimeType || "",
-		fileName: fileName || "",
+		fileName: effectiveName,
 		maxPages: 50,
 		maxPixels: 2e6,
 		minTextChars: 10

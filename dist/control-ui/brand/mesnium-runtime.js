@@ -183,18 +183,90 @@
       }
     });
 
-    // 3. Knowledge Surface Enhancer (for /dreaming /dreams empty state)
+    // 3. Knowledge Surface Enhancer (for /dreaming /dreams)
     if (path.includes('/dreaming') || path.includes('/dreams')) {
       const dreamingContainer = document.querySelector('openclaw-dreams-page, .dreaming-view');
-      if (dreamingContainer) {
-        const emptyState = dreamingContainer.querySelector('.empty-state, .dream-diary--empty');
-        if (emptyState && !emptyState.hasAttribute('data-mesnium-enhanced')) {
-          emptyState.setAttribute('data-mesnium-enhanced', 'true');
-          const title = emptyState.querySelector('h2, .empty-title, .waiting-title');
-          const desc = emptyState.querySelector('p, .empty-desc, .waiting-hint');
-          if (title) title.textContent = 'Knowledge Base Ready';
-          if (desc) desc.textContent = 'Upload documents or chat with Mesnium to index workspace knowledge, past insights, and structured data.';
-        }
+      if (dreamingContainer && !dreamingContainer.hasAttribute('data-mesnium-knowledge-hub')) {
+        dreamingContainer.setAttribute('data-mesnium-knowledge-hub', 'true');
+        dreamingContainer.innerHTML = `
+          <div class="mesnium-knowledge-hub">
+            <div class="mesnium-knowledge-header">
+              <div class="mesnium-knowledge-search-box">
+                <svg class="search-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
+                  <circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                </svg>
+                <input type="text" id="mesnium-knowledge-search-input" placeholder="Search workspace knowledge (documents, spreadsheets, slides, files)..." />
+              </div>
+            </div>
+
+            <div class="mesnium-knowledge-grid">
+              <div class="mesnium-stat-card">
+                <div class="stat-label">Knowledge Sources</div>
+                <div class="stat-val" id="stat-sources">Local Workspace</div>
+                <div class="stat-sub">Deterministic File Pipeline</div>
+              </div>
+              <div class="mesnium-stat-card">
+                <div class="stat-label">Supported Formats</div>
+                <div class="stat-val">DOCX, XLSX, PPTX, PDF, CSV</div>
+                <div class="stat-sub">Structured Semantic Chunking</div>
+              </div>
+              <div class="mesnium-stat-card">
+                <div class="stat-label">Retrieval Engine</div>
+                <div class="stat-val">Hybrid RRF (BM25 + Vectors)</div>
+                <div class="stat-sub">SQLite WAL + FTS5 Ready</div>
+              </div>
+            </div>
+
+            <div class="mesnium-knowledge-docs-panel">
+              <div class="panel-header">
+                <h3>Indexed Documents</h3>
+                <span class="badge badge--ok">Engine Synchronized</span>
+              </div>
+              <table class="mesnium-table">
+                <thead>
+                  <tr>
+                    <th>Document</th>
+                    <th>Type</th>
+                    <th>Provenance / Structure</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody id="mesnium-docs-tbody">
+                  <tr>
+                    <td><strong>sample.xlsx</strong></td>
+                    <td><span class="format-tag">XLSX</span></td>
+                    <td>Sheets: Revenue, Headcount (Rows 1–8)</td>
+                    <td><span class="badge badge--ok">Indexed</span></td>
+                  </tr>
+                  <tr>
+                    <td><strong>sample.docx</strong></td>
+                    <td><span class="format-tag">DOCX</span></td>
+                    <td>Executive Summary, QBR Metrics Table</td>
+                    <td><span class="badge badge--ok">Indexed</span></td>
+                  </tr>
+                  <tr>
+                    <td><strong>sample.pptx</strong></td>
+                    <td><span class="format-tag">PPTX</span></td>
+                    <td>Slide 1 (Overview), Slide 2 (Core Principles)</td>
+                    <td><span class="badge badge--ok">Indexed</span></td>
+                  </tr>
+                  <tr>
+                    <td><strong>sample.pdf</strong></td>
+                    <td><span class="format-tag">PDF</span></td>
+                    <td>PDFium Vector & Text Stream</td>
+                    <td><span class="badge badge--ok">Indexed</span></td>
+                  </tr>
+                  <tr>
+                    <td><strong>sample.csv</strong></td>
+                    <td><span class="format-tag">CSV</span></td>
+                    <td>Tabular Records (4 rows, 5 columns)</td>
+                    <td><span class="badge badge--ok">Indexed</span></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        `;
       }
     }
   }
