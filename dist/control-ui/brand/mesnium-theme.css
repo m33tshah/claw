@@ -165,39 +165,97 @@ html, body {
 }
 
 .sidebar-brand {
-  padding: 16px 14px 12px 14px !important;
+  padding: 14px 14px 12px 14px !important;
   border-bottom: 1px solid var(--border) !important;
   display: flex !important;
   align-items: center !important;
   gap: 10px !important;
+  min-height: 48px !important;
+  box-sizing: border-box !important;
 }
 
-.sidebar-brand__logo, .topbar-brand__logo, .login-gate__logo {
-  width: 24px !important;
+.sidebar-brand__identity {
+  display: flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+  flex: 1 !important;
+  min-width: 0 !important;
+}
+
+/* Sidebar Expanded Logo: Full Lockup (Emblem + Wordmark) */
+.sidebar-brand__logo {
   height: 24px !important;
-  border-radius: 3px !important;
+  width: auto !important;
+  max-width: 140px !important;
   object-fit: contain !important;
   background: transparent !important;
+  display: block !important;
 }
 
+/* Sidebar Collapsed: Standalone Emblem (1:1 Glyph) */
+openclaw-app-sidebar[collapsed] .sidebar-brand__logo,
+.sidebar--collapsed .sidebar-brand__logo,
+.sidebar-brand--collapsed .sidebar-brand__logo {
+  width: 24px !important;
+  height: 24px !important;
+  max-width: 24px !important;
+  object-fit: contain !important;
+  margin: 0 auto !important;
+}
+
+/* Hide separate text when Full Logo Lockup is active to prevent duplication */
 .sidebar-brand__title {
-  font-family: var(--font-body) !important;
-  font-weight: 700 !important;
-  letter-spacing: 0.08em !important;
-  text-transform: uppercase !important;
-  font-size: 13px !important;
-  color: var(--text-strong) !important;
+  display: none !important;
 }
 
+/* Topbar Branding */
 .topbar, dashboard-header, openclaw-app-topbar {
   background: var(--bg) !important;
   border-bottom: 1px solid var(--border) !important;
 }
 
-.topbar-brand__title, .dashboard-header__breadcrumb-link {
-  font-weight: 600 !important;
-  color: var(--text-strong) !important;
-  letter-spacing: 0.03em !important;
+.topbar-brand {
+  display: flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+}
+
+.topbar-brand__logo {
+  height: 22px !important;
+  width: auto !important;
+  max-width: 120px !important;
+  object-fit: contain !important;
+  background: transparent !important;
+}
+
+.topbar-brand__title {
+  display: none !important;
+}
+
+/* Login Gate Branding (Primary Brand Presentation - Full Lockup) */
+.login-gate__header {
+  text-align: center !important;
+  margin-bottom: 20px !important;
+}
+
+.login-gate__logo {
+  height: 38px !important;
+  width: auto !important;
+  max-width: 220px !important;
+  object-fit: contain !important;
+  background: transparent !important;
+  margin: 0 auto 12px auto !important;
+  display: block !important;
+}
+
+.login-gate__title {
+  display: none !important;
+}
+
+.login-gate__sub {
+  color: var(--muted-strong) !important;
+  font-size: 13px !important;
+  letter-spacing: 0.02em !important;
 }
 
 /* Quiet Nav Links */

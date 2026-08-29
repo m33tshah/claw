@@ -1,35 +1,73 @@
 /**
  * MESNIUM BRAND RUNTIME & UI NORMALIZATION LAYER
  * 
- * Injects master brand assets into shell components, ensures standard business
- * status terminology, and applies runtime UI polish without interfering with
- * underlying WebSocket RPC or Lit component lifecycles.
+ * Injects master brand assets into shell components:
+ * - Sidebar expanded: Full Mesnium logo lockup (emblem + wordmark)
+ * - Sidebar collapsed: Standalone Mesnium emblem
+ * - Topbar: Full Mesnium logo lockup (responsive emblem fallback on narrow viewports)
+ * - Login screen: Full Mesnium logo lockup
+ * - Browser favicon & touch icon: Standalone Mesnium emblem
  */
 
 (function () {
   'use strict';
 
-  const BRAND_ICON = './brand/icon.png';
-  const BRAND_NAME = 'MESNIUM';
+  const BRAND_LOGO = './brand/logo.png'; // Full Mesnium Logo Lockup (Emblem + Wordmark)
+  const BRAND_ICON = './brand/icon.png'; // Standalone Mesnium Emblem (Glyph only)
+  const BRAND_NAME = 'Mesnium';
+
+  function isSidebarCollapsed(sidebarEl) {
+    if (!sidebarEl) return false;
+    if (sidebarEl.collapsed === true || sidebarEl.hasAttribute('collapsed')) return true;
+    const parent = sidebarEl.closest('openclaw-app-shell');
+    if (parent && (parent.navCollapsed === true || parent.hasAttribute('nav-collapsed'))) return true;
+    const brandIdentity = sidebarEl.querySelector('.sidebar-brand__identity');
+    if (brandIdentity && brandIdentity.clientWidth > 0 && brandIdentity.clientWidth < 70) return true;
+    const rect = sidebarEl.getBoundingClientRect();
+    if (rect.width > 0 && rect.width < 90) return true;
+    return false;
+  }
 
   function applyBrandAssets() {
-    // 1. Sidebar Brand Logo
-    document.querySelectorAll('.sidebar-brand__logo, .topbar-brand__logo, .login-gate__logo').forEach(img => {
-      if (img.getAttribute('src') !== BRAND_ICON) {
-        img.src = BRAND_ICON;
+    // 1. Sidebar Brand Logo & Title
+    const sidebar = document.querySelector('openclaw-app-sidebar') || document.querySelector('.sidebar');
+    const collapsed = isSidebarCollapsed(sidebar);
+    const targetSidebarAsset = collapsed ? BRAND_ICON : BRAND_LOGO;
+
+    document.querySelectorAll('.sidebar-brand__logo').forEach(img => {
+      if (img.getAttribute('src') !== targetSidebarAsset) {
+        img.src = targetSidebarAsset;
         img.alt = BRAND_NAME;
-        img.style.objectFit = 'contain';
       }
+      img.style.objectFit = 'contain';
     });
 
-    // 2. Sidebar Title Formatting
-    document.querySelectorAll('.sidebar-brand__title, .topbar-brand__title, .login-gate__title').forEach(el => {
-      if (el.textContent.trim() !== BRAND_NAME) {
-        el.textContent = BRAND_NAME;
+    const sidebarBrand = document.querySelector('.sidebar-brand');
+    if (sidebarBrand) {
+      sidebarBrand.classList.toggle('sidebar-brand--collapsed', collapsed);
+    }
+
+    // 2. Topbar Brand Logo
+    const isNarrowViewport = window.innerWidth < 640;
+    const targetTopbarAsset = isNarrowViewport ? BRAND_ICON : BRAND_LOGO;
+    document.querySelectorAll('.topbar-brand__logo').forEach(img => {
+      if (img.getAttribute('src') !== targetTopbarAsset) {
+        img.src = targetTopbarAsset;
+        img.alt = BRAND_NAME;
       }
+      img.style.objectFit = 'contain';
     });
 
-    // 3. Document Title
+    // 3. Login Gate Logo
+    document.querySelectorAll('.login-gate__logo').forEach(img => {
+      if (img.getAttribute('src') !== BRAND_LOGO) {
+        img.src = BRAND_LOGO;
+        img.alt = BRAND_NAME;
+      }
+      img.style.objectFit = 'contain';
+    });
+
+    // 4. Document Title
     if (!document.title.includes('Mesnium')) {
       document.title = 'Mesnium Studio';
     }
@@ -42,11 +80,18 @@
     applyBrandAssets();
   }
 
-  // MutationObserver to handle dynamic page navigation and element mounting
+  // Handle window resize for responsive asset adjustments
+  let resizeTimer = null;
+  window.addEventListener('resize', () => {
+    if (resizeTimer) cancelAnimationFrame(resizeTimer);
+    resizeTimer = requestAnimationFrame(applyBrandAssets);
+  }, { passive: true });
+
+  // MutationObserver to handle dynamic Lit component mounting, navigation, and sidebar toggles
   const observer = new MutationObserver(mutations => {
     let shouldRun = false;
     for (const mutation of mutations) {
-      if (mutation.addedNodes.length > 0) {
+      if (mutation.addedNodes.length > 0 || mutation.type === 'attributes') {
         shouldRun = true;
         break;
       }
@@ -59,7 +104,8 @@
   observer.observe(document.documentElement, {
     childList: true,
     subtree: true,
-    attributes: false
+    attributes: true,
+    attributeFilter: ['collapsed', 'nav-collapsed', 'class', 'style']
   });
 
   console.log('[Mesnium] Visual Foundation & Brand Runtime Initialized.');
