@@ -302,8 +302,11 @@ export class MesniumKnowledgeStore {
   searchLexical(query, { workspaceId = 'default', sourceId = null, limit = 10 } = {}) {
     if (!query || !query.trim()) return [];
 
-    // Clean query for FTS5 syntax
-    const tokens = query.replace(/[^\w\s]/g, ' ').trim().split(/\s+/).filter(Boolean);
+    // Clean query and strip stopwords for FTS5 syntax
+    const STOPWORDS = new Set(['a', 'an', 'the', 'is', 'are', 'was', 'were', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by', 'what', 'which', 'who', 'how', 'when', 'where', 'why', 'can', 'could', 'should', 'would', 'do', 'does', 'did', 'this', 'that']);
+    const rawTokens = query.replace(/[^\w\s]/g, ' ').trim().split(/\s+/).filter(Boolean);
+    const meaningfulTokens = rawTokens.filter(t => !STOPWORDS.has(t.toLowerCase()));
+    const tokens = meaningfulTokens.length > 0 ? meaningfulTokens : rawTokens;
     if (tokens.length === 0) return [];
     const cleanQuery = tokens.map(t => `${t}*`).join(' OR ');
 
@@ -326,19 +329,31 @@ export class MesniumKnowledgeStore {
       params.push(limit * 2);
 
       const rows = this.db.prepare(sql).all(...params);
-      return rows.map(r => ({
-        id: r.id,
-        documentId: r.document_id,
-        sourceId: r.source_id,
-        workspaceId: r.workspace_id,
-        filename: r.filename,
-        extension: r.extension,
-        chunkIndex: r.chunk_index,
-        content: r.content,
-        provenance: JSON.parse(r.provenance_json || '{}'),
-        lexicalScore: Math.abs(r.rank_score), // FTS5 bm25 is negative (lower = better)
-        embedding: blobToVector(r.embedding_blob)
-      }));
+      return rows.map(r => {
+        const lowerContent = `${r.content} ${r.filename}`.toLowerCase();
+        let matchCount = 0;
+        for (const tok of tokens) {
+          if (lowerContent.includes(tok.toLowerCase())) {
+            matchCount++;
+          }
+        }
+        const tokenCoverage = tokens.length > 0 ? (matchCount / tokens.length) : 1.0;
+
+        return {
+          id: r.id,
+          documentId: r.document_id,
+          sourceId: r.source_id,
+          workspaceId: r.workspace_id,
+          filename: r.filename,
+          extension: r.extension,
+          chunkIndex: r.chunk_index,
+          content: r.content,
+          provenance: JSON.parse(r.provenance_json || '{}'),
+          lexicalScore: Math.abs(r.rank_score), // FTS5 bm25 is negative
+          tokenCoverage,
+          embedding: blobToVector(r.embedding_blob)
+        };
+      });
     } catch (e) {
       console.warn('[Mesnium Store] FTS5 search syntax warning:', e.message);
       return [];

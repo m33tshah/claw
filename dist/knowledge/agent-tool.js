@@ -56,7 +56,8 @@ export const KnowledgeSearchTool = {
       const results = await manager.search(params.query, {
         workspaceId: params.workspaceId || 'default',
         limit: params.maxResults || 5,
-        extension: params.extension || null
+        extension: params.extension || null,
+        minScore: 0.25
       });
 
       if (!results || results.length === 0) {

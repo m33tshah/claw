@@ -6,6 +6,7 @@
   "kind": "memory",
   "contracts": {
     "tools": [
+      "knowledge_search",
       "memory_get",
       "memory_search"
     ]

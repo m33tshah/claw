@@ -94,13 +94,17 @@ export class MesniumHybridRetriever {
       c.rrfScore = (this.lexicalWeight * rrfLexical) + (this.vectorWeight * rrfVector);
 
       // Normalized Hybrid Score (0.0 to 1.0)
-      const normLexical = c.lexicalRank ? Math.max(0, 1.0 - ((c.lexicalRank - 1) / (lexicalResults.length || 1))) : 0;
+      const coverage = c.tokenCoverage !== undefined ? c.tokenCoverage : 1.0;
+      const normLexical = c.lexicalRank ? (coverage * Math.max(0, 1.0 - ((c.lexicalRank - 1) / (lexicalResults.length || 1)))) : 0;
       const normVector = c.vectorScore || 0;
       c.hybridScore = (this.lexicalWeight * normLexical) + (this.vectorWeight * normVector);
     }
 
-    // 4. Metadata Filtering
-    let filtered = candidates;
+    // 4. Metadata Filtering & Minimum Relevance Threshold
+    let filtered = candidates.filter(c => {
+      return c.hybridScore >= minScore;
+    });
+
     if (extension) {
       filtered = filtered.filter(c => (c.extension || '').toLowerCase() === extension.toLowerCase());
     }
