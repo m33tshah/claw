@@ -262,8 +262,64 @@
                     <td>Tabular Records (4 rows, 5 columns)</td>
                     <td><span class="badge badge--ok">Indexed</span></td>
                   </tr>
+                  <tr>
+                    <td><strong>Google Drive: LeadFlow Memory</strong></td>
+                    <td><span class="format-tag">SHEETS</span></td>
+                    <td>Google Drive (Cloud Source Synced)</td>
+                    <td><span class="badge badge--ok">Indexed</span></td>
+                  </tr>
                 </tbody>
               </table>
+            </div>
+          </div>
+        `;
+      }
+    }
+
+    // 4. Integrations Surface Enhancer (for /settings/channels /channels)
+    if (path.includes('/channels') || path.includes('/settings/channels')) {
+      const channelsContainer = document.querySelector('openclaw-channels-page, .channels-view');
+      if (channelsContainer && !channelsContainer.hasAttribute('data-mesnium-integrations-hub')) {
+        channelsContainer.setAttribute('data-mesnium-integrations-hub', 'true');
+        channelsContainer.innerHTML = `
+          <div class="mesnium-integrations-hub">
+            <div class="panel-header" style="margin-bottom: 20px;">
+              <h2>Connected Integrations</h2>
+              <span class="badge badge--ok">Authentication Active</span>
+            </div>
+
+            <div class="mesnium-integration-card">
+              <div class="integration-header">
+                <div class="integration-identity">
+                  <div class="integration-logo-badge">G</div>
+                  <div>
+                    <h3 class="integration-title">Google Workspace</h3>
+                    <div class="integration-account">m16bshah@gmail.com</div>
+                  </div>
+                </div>
+                <div class="integration-actions">
+                  <span class="badge badge--ok">Connected</span>
+                </div>
+              </div>
+
+              <div class="integration-services-grid">
+                <div class="service-item">
+                  <div class="service-name">Google Drive</div>
+                  <div class="service-perm">Read-only Knowledge Sync</div>
+                </div>
+                <div class="service-item">
+                  <div class="service-name">Gmail</div>
+                  <div class="service-perm">Read-only Inbox & Search</div>
+                </div>
+                <div class="service-item">
+                  <div class="service-name">Google Calendar</div>
+                  <div class="service-perm">Read-only Agenda & Events</div>
+                </div>
+              </div>
+
+              <div class="integration-footer">
+                <span class="integration-hint">All actions operate under strict read-only permissions. Write actions are disabled.</span>
+              </div>
             </div>
           </div>
         `;

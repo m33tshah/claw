@@ -6,6 +6,9 @@
   "kind": "memory",
   "contracts": {
     "tools": [
+      "calendar_agenda",
+      "gmail_search",
+      "google_drive_search",
       "knowledge_search",
       "memory_get",
       "memory_search"
