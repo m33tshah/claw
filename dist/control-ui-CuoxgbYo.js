@@ -8,7 +8,7 @@ import { m as resolveUserPath } from "./utils-CRO4LGEB.js";
 import { s as resolveRuntimeServiceVersion } from "./version-CeFj_iGk.js";
 import "./boundary-file-read-CBe_wA_B.js";
 import "./path-safety-CBe_wA_B.js";
-import { _ as resolveRequestClientIp } from "./net-BOKtNTf8.js";
+import { _ as resolveRequestClientIp, r as isLoopbackAddress } from "./net-BOKtNTf8.js";
 import { r as AUTH_RATE_LIMIT_SCOPE_DEVICE_TOKEN, s as AUTH_RATE_LIMIT_SCOPE_SHARED_SECRET } from "./auth-rate-limit-DczU2XgX.js";
 import { r as authorizeHttpGatewayConnect } from "./auth-B27MflKU.js";
 import { t as AVATAR_MAX_BYTES } from "./avatar-policy-3iKUCXyV.js";
@@ -591,9 +591,13 @@ function serveResolvedFile(res, filePath, body) {
 	setStaticFileHeaders(res, filePath);
 	res.end(body);
 }
-function serveResolvedIndexHtml(res, body, basePath, allowWasm) {
+function serveResolvedIndexHtml(res, body, basePath, allowWasm, authBootstrapToken) {
 	const normalizedBasePath = normalizeControlUiBasePath(basePath);
-	const withBasePath = rewriteControlUiIndexHtmlPublicAssetHrefs(body, normalizedBasePath);
+	let withBasePath = rewriteControlUiIndexHtmlPublicAssetHrefs(body, normalizedBasePath);
+	if (authBootstrapToken) {
+		const bootstrapScript = `<script>window.__OPENCLAW_NATIVE_CONTROL_AUTH__=Object.assign(window.__OPENCLAW_NATIVE_CONTROL_AUTH__||{},{gatewayUrl:(location.protocol==='https:'?'wss://':'ws://')+location.host,token:${JSON.stringify(authBootstrapToken)}});</script>`;
+		withBasePath = withBasePath.replace("</head>", `${bootstrapScript}\n</head>`);
+	}
 	const basePathAttribute = normalizedBasePath ? ` ${CONTROL_UI_BASE_PATH_ATTRIBUTE}="${escapeHtmlAttribute(normalizedBasePath)}"` : "";
 	const prepared = withBasePath.replace(/<html\b/i, `<html${basePathAttribute} ${CONTROL_UI_TERMINAL_ENABLED_ATTRIBUTE}="${allowWasm === true}"`);
 	const hashes = computeInlineScriptHashes(prepared);
@@ -817,11 +821,14 @@ async function handleControlUiHttpRequest(req, res, opts) {
 		argv1: process.argv[1],
 		cwd: process.cwd()
 	}));
+	const clientIp = resolveRequestClientIp(req, opts.trustedProxies, opts.allowRealIpFallback === true) ?? req.socket?.remoteAddress;
+	const isLoopback = isLoopbackAddress(clientIp);
+	const authBootstrapToken = isLoopback && opts.auth?.token ? opts.auth.token : void 0;
 	const safeFile = resolveSafeControlUiFile(rootReal, filePath, rejectHardlinks);
 	if (safeFile) try {
 		if (respondHeadForFile(req, res, safeFile.path)) return true;
 		if (path.basename(safeFile.path) === "index.html") {
-			serveResolvedIndexHtml(res, await readOpenedFileText(safeFile.fd), basePath, terminalEnabled);
+			serveResolvedIndexHtml(res, await readOpenedFileText(safeFile.fd), basePath, terminalEnabled, authBootstrapToken);
 			return true;
 		}
 		serveResolvedFile(res, safeFile.path, await readOpenedFile(safeFile.fd));
@@ -836,7 +843,7 @@ async function handleControlUiHttpRequest(req, res, opts) {
 	const safeIndex = resolveSafeControlUiFile(rootReal, path.join(root, "index.html"), rejectHardlinks);
 	if (safeIndex) try {
 		if (respondHeadForFile(req, res, safeIndex.path)) return true;
-		serveResolvedIndexHtml(res, await readOpenedFileText(safeIndex.fd), basePath, terminalEnabled);
+		serveResolvedIndexHtml(res, await readOpenedFileText(safeIndex.fd), basePath, terminalEnabled, authBootstrapToken);
 		return true;
 	} finally {
 		fs.closeSync(safeIndex.fd);
