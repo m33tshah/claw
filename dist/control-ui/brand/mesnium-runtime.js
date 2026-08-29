@@ -1,11 +1,12 @@
 /**
- * MESNIUM STUDIO — RUNTIME & BRIDGE LAYER (PHASE 5)
+ * MESNIUM STUDIO — RUNTIME, BRIDGE & PRODUCT FOUNDATION (PHASE 7)
  * 
  * Provides:
  * 1. Zero-Friction Local Gateway Authentication & Bootstrap
  * 2. Mesnium Bridge Layer & Connection State Machine
  * 3. Windows Standby / Sleep / Idle Instant Wake & Reconnection Recovery
  * 4. Master Brand Asset Injection & Layout Normalization
+ * 5. Mesnium Product Information Architecture & Terminology Normalization
  */
 
 (function () {
@@ -37,6 +38,7 @@
     const previousState = currentState;
     currentState = newState;
     console.log(`[Mesnium Bridge] Connection State: ${previousState} -> ${newState}`);
+    updateConnectionBadge();
     for (const listener of stateListeners) {
       try {
         listener(newState, previousState);
@@ -120,9 +122,106 @@
     if (!document.title.includes('Mesnium')) {
       document.title = PRODUCT_TITLE;
     }
+
+    // E. Normalize Dynamic DOM Text & Empty States
+    normalizeProductSurfaces();
   }
 
-  // --- 5. WINDOWS STANDBY / SLEEP / IDLE RECOVERY ENGINE ---
+  // --- 5. TERMINOLOGY & SURFACE NORMALIZATION ---
+  const ROUTE_LABELS = {
+    '/overview': { title: 'Home', subtitle: 'Executive summary, active workspace, health.' },
+    '/chat': { title: 'Work', subtitle: 'Conversational workspace and action dispatch.' },
+    '/agents': { title: 'Agents', subtitle: 'Workspaces, specialized agents, identities.' },
+    '/dreaming': { title: 'Knowledge', subtitle: 'Unified workspace knowledge and memory index.' },
+    '/dreams': { title: 'Knowledge', subtitle: 'Unified workspace knowledge and memory index.' },
+    '/cron': { title: 'Automations', subtitle: 'Scheduled workflows, recurring runs, and triggers.' },
+    '/settings/channels': { title: 'Integrations', subtitle: 'Connected services (Google Workspace, messaging).' },
+    '/channels': { title: 'Integrations', subtitle: 'Connected services (Google Workspace, messaging).' },
+    '/settings/worktrees': { title: 'Computer & Files', subtitle: 'Local computer files and workspace boundaries.' },
+    '/worktrees': { title: 'Computer & Files', subtitle: 'Local computer files and workspace boundaries.' },
+    '/workboard': { title: 'Workboard', subtitle: 'Agent work queue and session handoff.' },
+    '/sessions': { title: 'Conversations', subtitle: 'Threaded conversations and history.' },
+    '/settings/general': { title: 'Settings', subtitle: 'Product and workspace settings.' },
+    '/settings': { title: 'Settings', subtitle: 'Product and workspace settings.' }
+  };
+
+  function normalizeProductSurfaces() {
+    // 1. Topbar Title & Subtitle Normalization
+    const path = window.location.pathname.replace(/\/+$/, '') || '/';
+    const topbar = document.querySelector('openclaw-app-topbar');
+    if (topbar) {
+      const titleEl = topbar.querySelector('.topbar-title, .topbar__title, h1');
+      const subtitleEl = topbar.querySelector('.topbar-subtitle, .topbar__subtitle');
+      for (const [routePrefix, meta] of Object.entries(ROUTE_LABELS)) {
+        if (path === routePrefix || (routePrefix !== '/' && path.startsWith(routePrefix))) {
+          if (titleEl && titleEl.textContent !== meta.title) {
+            titleEl.textContent = meta.title;
+          }
+          if (subtitleEl && subtitleEl.textContent !== meta.subtitle) {
+            subtitleEl.textContent = meta.subtitle;
+          }
+          break;
+        }
+      }
+    }
+
+    // 2. Normalize Sidebar Labels
+    document.querySelectorAll('.sidebar-nav__item, .nav-item, a[href*="/"]').forEach(link => {
+      const href = link.getAttribute('href') || '';
+      const textNode = Array.from(link.childNodes).find(n => n.nodeType === Node.TEXT_NODE && n.textContent.trim().length > 0)
+        || link.querySelector('.sidebar-nav__label, .nav-label, span');
+      
+      if (textNode) {
+        const text = textNode.textContent.trim();
+        if (text === 'Overview' && (href.includes('/overview') || href === '/')) textNode.textContent = 'Home';
+        if (text === 'Chat' && href.includes('/chat')) textNode.textContent = 'Work';
+        if (text === 'Cron Jobs' || text === 'Cron') textNode.textContent = 'Automations';
+        if (text === 'Dreaming' || text === 'Dreams') textNode.textContent = 'Knowledge';
+        if (text === 'Channels') textNode.textContent = 'Integrations';
+        if (text === 'Worktrees') textNode.textContent = 'Computer & Files';
+        if (text === 'Sessions') textNode.textContent = 'Conversations';
+      }
+    });
+
+    // 3. Knowledge Surface Enhancer (for /dreaming /dreams empty state)
+    if (path.includes('/dreaming') || path.includes('/dreams')) {
+      const dreamingContainer = document.querySelector('openclaw-dreams-page, .dreaming-view');
+      if (dreamingContainer) {
+        const emptyState = dreamingContainer.querySelector('.empty-state, .dream-diary--empty');
+        if (emptyState && !emptyState.hasAttribute('data-mesnium-enhanced')) {
+          emptyState.setAttribute('data-mesnium-enhanced', 'true');
+          const title = emptyState.querySelector('h2, .empty-title, .waiting-title');
+          const desc = emptyState.querySelector('p, .empty-desc, .waiting-hint');
+          if (title) title.textContent = 'Knowledge Base Ready';
+          if (desc) desc.textContent = 'Upload documents or chat with Mesnium to index workspace knowledge, past insights, and structured data.';
+        }
+      }
+    }
+  }
+
+  function updateConnectionBadge() {
+    const dot = document.querySelector('.sidebar-status__dot');
+    if (dot) {
+      dot.className = 'sidebar-status__dot';
+      switch (currentState) {
+        case ConnectionState.CONNECTED:
+          dot.classList.add('sidebar-connection-status--online');
+          dot.setAttribute('aria-label', 'Mesnium Engine Online');
+          break;
+        case ConnectionState.RECONNECTING:
+        case ConnectionState.RECOVERING:
+          dot.classList.add('sidebar-connection-status--recovering');
+          dot.setAttribute('aria-label', 'Reconnecting to Engine...');
+          break;
+        default:
+          dot.classList.add('sidebar-connection-status--offline');
+          dot.setAttribute('aria-label', 'Engine Offline');
+          break;
+      }
+    }
+  }
+
+  // --- 6. WINDOWS STANDBY / SLEEP / IDLE RECOVERY ENGINE ---
   async function checkGatewayHealth() {
     try {
       const res = await fetch('/health', {
@@ -163,13 +262,11 @@
       }
 
       if (healthy) {
-        // Trigger UI reconnection if disconnected or stale
         const appElement = document.querySelector('openclaw-app');
         if (appElement && typeof appElement.requestUpdate === 'function') {
           appElement.requestUpdate();
         }
 
-        // Notify storage/window that gateway is online
         bootstrapLocalAuth();
         setConnectionState(ConnectionState.CONNECTED);
         console.log('[Mesnium Bridge] Recovery complete. Connection restored.');
@@ -218,7 +315,7 @@
     }
   }, 3000);
 
-  // --- 6. EXPOSE MESNIUM BRIDGE PUBLIC API ---
+  // --- 7. EXPOSE MESNIUM BRIDGE PUBLIC API ---
   window.MesniumBridge = {
     version: '1.0.0-alpha',
     engine: 'OpenClaw 2026.7.1',
@@ -238,7 +335,7 @@
     getGatewayUrl: () => (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host
   };
 
-  // --- 7. INITIALIZATION ---
+  // --- 8. INITIALIZATION ---
   bootstrapLocalAuth();
 
   if (document.readyState === 'loading') {
@@ -273,5 +370,5 @@
     attributeFilter: ['collapsed', 'nav-collapsed', 'class', 'style']
   });
 
-  console.log('[Mesnium Bridge] Zero-Friction Local Runtime & Bridge Initialized.');
+  console.log('[Mesnium Bridge] Zero-Friction Local Runtime & Product Foundation Initialized.');
 })();

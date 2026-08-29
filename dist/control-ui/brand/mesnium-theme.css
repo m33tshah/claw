@@ -490,3 +490,65 @@ input:focus, textarea:focus, select:focus {
   border-color: rgba(179, 61, 63, 0.4) !important;
   color: #f87171 !important;
 }
+
+/* ==========================================================================
+   7. CONNECTION STATUS INDICATORS & EMPTY STATES (PHASE 7)
+   ========================================================================== */
+
+.sidebar-status__dot {
+  width: 8px !important;
+  height: 8px !important;
+  border-radius: 50% !important;
+  display: inline-block !important;
+  transition: background var(--duration-fast) ease, box-shadow var(--duration-fast) ease !important;
+}
+
+.sidebar-connection-status--online {
+  background: #2e8b57 !important;
+  box-shadow: 0 0 6px rgba(46, 139, 87, 0.6) !important;
+}
+
+.sidebar-connection-status--recovering {
+  background: #c27803 !important;
+  box-shadow: 0 0 8px rgba(194, 120, 3, 0.7) !important;
+  animation: mesnium-pulse 1.5s infinite ease-in-out !important;
+}
+
+.sidebar-connection-status--offline {
+  background: #747480 !important;
+  box-shadow: none !important;
+}
+
+@keyframes mesnium-pulse {
+  0% { opacity: 0.4; transform: scale(0.95); }
+  50% { opacity: 1; transform: scale(1.08); }
+  100% { opacity: 0.4; transform: scale(0.95); }
+}
+
+/* Product Surface Empty States */
+.empty-state, .waiting-empty, .dream-diary--empty {
+  padding: 48px 24px !important;
+  text-align: center !important;
+  border: 1px dashed var(--border-strong) !important;
+  border-radius: var(--radius-md) !important;
+  background: var(--bg-accent) !important;
+  margin: 24px auto !important;
+  max-width: 580px !important;
+}
+
+.empty-state h2, .waiting-title {
+  font-family: var(--font-display) !important;
+  font-size: 20px !important;
+  font-weight: 500 !important;
+  color: var(--text-strong) !important;
+  margin-bottom: 8px !important;
+}
+
+.empty-state p, .waiting-hint {
+  font-size: 13.5px !important;
+  color: var(--muted-strong) !important;
+  line-height: 1.6 !important;
+  max-width: 440px !important;
+  margin: 0 auto !important;
+}
+
