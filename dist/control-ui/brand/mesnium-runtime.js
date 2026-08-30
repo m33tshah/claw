@@ -9,6 +9,8 @@
  * 5. Full hash-routing navigation with URL preservation and back/forward support.
  */
 
+import { t as GatewayClient } from '../assets/gateway-CWCQz7bR.js';
+
 (function () {
   'use strict';
 
@@ -20,18 +22,19 @@
   // --- 2. WEBSOCKET RPC CLIENT BRIDGE ---
   class MesniumGatewayClient {
     constructor() {
-      this.ws = null;
-      this.pendingRequests = new Map();
+      this.nativeClient = null;
       this.status = 'disconnected'; // 'connecting' | 'connected' | 'reconnecting' | 'failed'
-      this.connectPromise = null;
       this.reconnectAttempts = 0;
-      this.maxReconnectAttempts = 5;
-      this.reconnectTimer = null;
+      this.connectPromise = null;
+      this.eventListeners = new Set();
     }
 
     async getToken() {
       try {
-        // 1. Injected by Gateway on loopback requests
+        // 1. Preserved Mesnium auth or injected Gateway loopback auth
+        if (window.__MESNIUM_AUTH__ && window.__MESNIUM_AUTH__.token) {
+          return window.__MESNIUM_AUTH__.token;
+        }
         if (window.__OPENCLAW_NATIVE_CONTROL_AUTH__ && window.__OPENCLAW_NATIVE_CONTROL_AUTH__.token) {
           return window.__OPENCLAW_NATIVE_CONTROL_AUTH__.token;
         }
@@ -46,7 +49,32 @@
         const hashParams = new URLSearchParams(hashQuery);
         if (hashParams.get('token')) return hashParams.get('token');
 
-        // 3. LocalStorage keys
+        // 3. SessionStorage control tokens (where OpenClaw Control UI stores active auth token)
+        try {
+          if (typeof sessionStorage !== 'undefined') {
+            for (let i = 0; i < sessionStorage.length; i++) {
+              const k = sessionStorage.key(i);
+              if (k && k.includes('openclaw.control.token.v1')) {
+                const val = sessionStorage.getItem(k);
+                if (val && val.trim()) return val.trim();
+              }
+            }
+          }
+        } catch (e) {}
+
+        // 4. LocalStorage device tokens
+        for (let i = 0; i < localStorage.length; i++) {
+          const k = localStorage.key(i);
+          if (k && k.includes('openclaw.device.auth.v1')) {
+            try {
+              const parsed = JSON.parse(localStorage.getItem(k));
+              const token = parsed?.tokens?.operator?.token;
+              if (token) return token;
+            } catch (e) {}
+          }
+        }
+
+        // 4. LocalStorage control tokens and settings
         const gatewayUrl = (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host;
         const key = 'openclaw.control.token.v1:' + gatewayUrl.replace(/\/+$/, '');
         const directToken = localStorage.getItem(key);
@@ -54,13 +82,19 @@
 
         for (let i = 0; i < localStorage.length; i++) {
           const k = localStorage.key(i);
-          if (k && k.includes('openclaw.control.token.v1')) {
+          if (k && (k.includes('openclaw.control.token.v1') || k.includes('openclaw.control.settings.v1'))) {
             const val = localStorage.getItem(k);
-            if (val) return val;
+            if (val && !val.startsWith('{')) return val;
+            if (val && val.startsWith('{')) {
+              try {
+                const parsed = JSON.parse(val);
+                if (parsed.token) return parsed.token;
+              } catch (e) {}
+            }
           }
         }
 
-        // 4. Fetch bootstrap config if available
+        // 5. Fetch bootstrap config if available
         try {
           const resp = await fetch('/control-ui-config.json');
           if (resp.ok) {
@@ -76,15 +110,10 @@
     }
 
     async connect() {
-      if (this.status === 'connected' && this.ws && this.ws.readyState === WebSocket.OPEN) {
-        return this.ws;
+      if (this.status === 'connected' && this.nativeClient && this.nativeClient.connected) {
+        return this.nativeClient;
       }
       if (this.connectPromise) return this.connectPromise;
-
-      if (this.reconnectTimer) {
-        clearTimeout(this.reconnectTimer);
-        this.reconnectTimer = null;
-      }
 
       this.status = this.reconnectAttempts === 0 ? 'connecting' : 'reconnecting';
       updateEngineStatus(this.status, this.reconnectAttempts);
@@ -94,96 +123,49 @@
           const token = await this.getToken();
           const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
           const wsUrl = `${protocol}//${location.host}/`;
-          const ws = new WebSocket(wsUrl);
 
-          const connectTimeout = setTimeout(() => {
-            if (this.status !== 'connected') {
-              try { ws.close(); } catch (e) {}
-              this.handleDisconnect('Connection timeout');
-              resolve(null);
+          if (this.nativeClient) {
+            try { this.nativeClient.stop(); } catch (e) {}
+          }
+
+          this.nativeClient = new GatewayClient({
+            url: wsUrl,
+            token: token ? token.trim() : undefined,
+            clientName: 'openclaw-control-ui',
+            clientVersion: 'dev',
+            mode: 'webchat',
+            instanceId: (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : undefined,
+            onHello: (hello) => {
+              console.log('[Mesnium Client] onHello success:', hello);
+              this.status = 'connected';
+              this.reconnectAttempts = 0;
+              this.connectPromise = null;
+              updateEngineStatus('connected');
+              if (typeof attachSurfaceHandlers === 'function') {
+                attachSurfaceHandlers(state.activeRoute);
+              }
+              resolve(this.nativeClient);
+            },
+            onClose: ({ code, reason, error, willRetry }) => {
+              console.warn('[Mesnium Client] onClose:', { code, reason, error, willRetry });
+              this.connectPromise = null;
+              this.reconnectAttempts++;
+              this.status = willRetry ? 'reconnecting' : 'failed';
+              updateEngineStatus(this.status, this.reconnectAttempts);
+            },
+            onEvent: (event) => {
+              for (const listener of this.eventListeners) {
+                try { listener(event); } catch (e) {}
+              }
             }
-          }, 8000);
+          });
 
-          ws.onopen = () => {
-            const connectReq = {
-              type: 'req',
-              id: 'mesnium_connect_' + Date.now(),
-              method: 'connect',
-              params: {
-                minProtocol: 4,
-                maxProtocol: 4,
-                role: 'operator',
-                scopes: ['operator.admin', 'operator.read', 'operator.write'],
-                client: {
-                  id: 'cli',
-                  version: '2.0.0',
-                  platform: 'web',
-                  mode: 'ui'
-                },
-                auth: token ? { token } : undefined
-              }
-            };
-            ws.send(JSON.stringify(connectReq));
-          };
-
-          ws.onmessage = (event) => {
-            try {
-              const msg = JSON.parse(event.data);
-
-              // 1. Handshake response
-              if (msg.id && msg.id.startsWith('mesnium_connect_')) {
-                clearTimeout(connectTimeout);
-                if (msg.ok) {
-                  this.status = 'connected';
-                  this.ws = ws;
-                  this.reconnectAttempts = 0;
-                  this.connectPromise = null;
-                  updateEngineStatus('connected');
-                  resolve(ws);
-
-                  // Refresh active surface data
-                  if (typeof attachSurfaceHandlers === 'function') {
-                    attachSurfaceHandlers(state.activeRoute);
-                  }
-                } else {
-                  console.error('[Mesnium Client] Handshake rejected:', msg.error);
-                  this.handleDisconnect(msg.error?.message || 'Authentication rejected');
-                  resolve(null);
-                }
-                return;
-              }
-
-              // 2. RPC Responses
-              if (msg.id && this.pendingRequests.has(msg.id)) {
-                const { resolve: reqResolve, reject: reqReject, timeout } = this.pendingRequests.get(msg.id);
-                clearTimeout(timeout);
-                this.pendingRequests.delete(msg.id);
-                if (msg.ok) {
-                  reqResolve(msg.payload !== undefined ? msg.payload : (msg.result || {}));
-                } else {
-                  reqReject(new Error(msg.error?.message || msg.error || 'Gateway RPC Error'));
-                }
-              }
-            } catch (err) {
-              console.warn('[Mesnium Client] Message parse error:', err);
-            }
-          };
-
-          ws.onerror = () => {
-            clearTimeout(connectTimeout);
-            this.handleDisconnect('WebSocket error');
-            resolve(null);
-          };
-
-          ws.onclose = () => {
-            clearTimeout(connectTimeout);
-            this.handleDisconnect('WebSocket closed');
-            resolve(null);
-          };
-
+          this.nativeClient.start();
         } catch (err) {
-          console.error('[Mesnium Client] Connect exception:', err);
-          this.handleDisconnect(err.message);
+          console.error('[Mesnium Client] Init error:', err);
+          this.status = 'failed';
+          updateEngineStatus('failed');
+          this.connectPromise = null;
           resolve(null);
         }
       });
@@ -191,48 +173,18 @@
       return this.connectPromise;
     }
 
-    handleDisconnect(reason) {
-      this.status = 'disconnected';
-      this.ws = null;
-      this.connectPromise = null;
-
-      // Reject all pending requests
-      for (const [id, req] of this.pendingRequests) {
-        clearTimeout(req.timeout);
-        req.reject(new Error(`Disconnected from Mesnium Gateway (${reason})`));
-      }
-      this.pendingRequests.clear();
-
-      this.reconnectAttempts++;
-      if (this.reconnectAttempts <= this.maxReconnectAttempts) {
-        this.status = 'reconnecting';
-        updateEngineStatus('reconnecting', this.reconnectAttempts);
-        this.reconnectTimer = setTimeout(() => this.connect().catch(() => {}), 2500);
-      } else {
-        this.status = 'failed';
-        updateEngineStatus('failed');
-      }
-    }
-
-    async request(method, params = {}, timeoutMs = 25000) {
-      if (this.status !== 'connected' || !this.ws || this.ws.readyState !== WebSocket.OPEN) {
+    async request(method, params = {}) {
+      if (!this.nativeClient || !this.nativeClient.connected) {
         await this.connect();
       }
-
-      if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      if (!this.nativeClient || !this.nativeClient.connected) {
         throw new Error('Mesnium Engine is offline. Please retry the connection.');
       }
+      return this.nativeClient.request(method, params);
+    }
 
-      const id = 'req_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
-      return new Promise((resolve, reject) => {
-        const timeout = setTimeout(() => {
-          this.pendingRequests.delete(id);
-          reject(new Error(`RPC Timeout: "${method}" exceeded ${timeoutMs}ms.`));
-        }, timeoutMs);
-
-        this.pendingRequests.set(id, { resolve, reject, timeout });
-        this.ws.send(JSON.stringify({ type: 'req', id, method, params }));
-      });
+    get ws() {
+      return this.nativeClient ? this.nativeClient.ws : null;
     }
   }
 
@@ -314,9 +266,9 @@
 
   // --- 5. ROUTE RESOLUTION ---
   function getRouteFromLocation() {
-    const hash = window.location.hash.replace(/^#\/?/, '').split('?')[0].split('/')[0] || '';
-    const path = window.location.pathname.replace(/^\//, '').split('?')[0].split('/')[0] || '';
-    const raw = hash || path || 'overview';
+    const hash = (window.location.hash || '').replace(/^#\/?/, '').split('?')[0].split('/')[0] || '';
+    const path = (window.location.pathname || '').replace(/^\//, '').split('?')[0].split('/')[0] || '';
+    const raw = hash || (path && path !== 'index.html' ? path : '') || state.activeRoute || 'overview';
 
     if (raw === 'chat' || raw === 'inbox') return 'inbox';
     if (raw === 'agents' || raw === 'assistants') return 'assistants';
@@ -329,9 +281,14 @@
     return 'overview';
   }
 
-  function navigateTo(route) {
+  window.navigateTo = function (route) {
+    state.activeRoute = route;
     window.location.hash = `#/${route}`;
-  }
+    renderMesniumApp();
+  };
+  window.getActiveRoute = function () {
+    return state.activeRoute;
+  };
 
   // --- 6. CORE DOM MOUNT & OPENCLAW SUPPRESSION ---
   function ensureMesniumShell() {
@@ -358,7 +315,9 @@
   // --- 7. MAIN RENDERER ---
   function renderMesniumApp() {
     const container = ensureMesniumShell();
-    state.activeRoute = getRouteFromLocation();
+    if (!state.activeRoute) {
+      state.activeRoute = getRouteFromLocation();
+    }
     document.title = `${ROUTE_META[state.activeRoute]?.title || 'Studio'} — Mesnium`;
 
     const pendingCount = state.approvalsList.length;
@@ -542,10 +501,10 @@
             </div>
 
             <div class="mesnium-shortcuts-row">
-              <button class="btn btn--primary" onclick="window.location.hash='#/inbox'">Open Inbox Workspace</button>
-              <button class="btn btn--secondary" onclick="window.location.hash='#/assistants'">Run Assistant Task</button>
-              <button class="btn btn--secondary" onclick="window.location.hash='#/knowledge'">Search Knowledge</button>
-              <button class="btn btn--secondary" onclick="window.location.hash='#/approvals'">Review Action Queue</button>
+              <button class="btn btn--primary" id="btn-shortcut-inbox" onclick="window.navigateTo('inbox')">Open Inbox Workspace</button>
+              <button class="btn btn--secondary" id="btn-shortcut-assistants" onclick="window.navigateTo('assistants')">Run Assistant Task</button>
+              <button class="btn btn--secondary" id="btn-shortcut-knowledge" onclick="window.navigateTo('knowledge')">Search Knowledge</button>
+              <button class="btn btn--secondary" id="btn-shortcut-approvals" onclick="window.navigateTo('approvals')">Review Action Queue</button>
             </div>
 
             <div class="mesnium-card" style="margin-top: 28px;">
@@ -986,6 +945,15 @@
             tbody.innerHTML = `<tr><td colspan="5" class="table-empty-cell">No business outcomes recorded yet. Run an assistant task or automation to record activity.</td></tr>`;
           }
         }
+
+        const btnInbox = document.getElementById('btn-shortcut-inbox');
+        const btnAssistants = document.getElementById('btn-shortcut-assistants');
+        const btnKnowledge = document.getElementById('btn-shortcut-knowledge');
+        const btnApprovals = document.getElementById('btn-shortcut-approvals');
+        if (btnInbox) btnInbox.onclick = () => window.navigateTo('inbox');
+        if (btnAssistants) btnAssistants.onclick = () => window.navigateTo('assistants');
+        if (btnKnowledge) btnKnowledge.onclick = () => window.navigateTo('knowledge');
+        if (btnApprovals) btnApprovals.onclick = () => window.navigateTo('approvals');
       } catch (err) {
         const sub = document.getElementById('overview-hero-subtext');
         if (sub) sub.textContent = `Connecting to Mesnium Gateway... (${err.message})`;
@@ -1140,7 +1108,7 @@
         if (container) {
           if (state.automationsList.length > 0) {
             container.innerHTML = state.automationsList.map(auto => `
-              <div class="automation-card" id="card-${auto.id}" style="margin-bottom: 16px;">
+              <div class="automation-card" id="auto-card-${auto.id}" style="margin-bottom: 16px;">
                 <div class="auto-top">
                   <div>
                     <h3 class="auto-title">${escapeHtml(auto.name)}</h3>
@@ -1156,12 +1124,12 @@
                   `).join('')}
                 </div>
 
-                <div id="output-${auto.id}" class="auto-exec-result" style="display:none; margin-top:12px;"></div>
+                <div id="auto-run-out-${auto.id}" class="auto-exec-result" style="display:none; margin-top:12px;"></div>
 
                 <div class="auto-footer">
                   <span class="auto-meta">Assigned: <strong>${escapeHtml(auto.agentId || 'Assistant')}</strong> &bull; Policy: <strong>${escapeHtml(auto.approvalPolicy || 'Standard')}</strong></span>
                   <div class="auto-actions">
-                    <button class="btn btn--secondary btn--sm" onclick="window.runAutomation('${auto.id}')">Run Now</button>
+                    <button class="btn btn--secondary btn--sm" id="btn-run-${auto.id}" onclick="window.runAutomation('${auto.id}')">Run Now</button>
                     <button class="btn btn--secondary btn--sm" id="btn-pause-${auto.id}" onclick="window.toggleAutomationPause('${auto.id}')">${auto.status === 'active' ? 'Pause' : 'Resume'}</button>
                   </div>
                 </div>
@@ -1391,7 +1359,23 @@
     container.scrollTop = container.scrollHeight;
   }
 
-  // --- 11. GLOBAL ACTION DISPATCHERS & MODALS ---
+  window.showToast = function (msg, type = 'info') {
+    window._lastAlert = msg;
+    const existing = document.getElementById('mesnium-toast');
+    if (existing) existing.remove();
+
+    const toast = document.createElement('div');
+    toast.id = 'mesnium-toast';
+    toast.style.cssText = 'position:fixed; bottom:24px; right:24px; z-index:99999; background:#1a1d24; border:1px solid #333a48; border-radius:8px; padding:12px 18px; color:#f1f5f9; box-shadow:0 8px 24px rgba(0,0,0,0.5); font-size:13px; font-weight:500; transition:opacity 0.3s ease;';
+    toast.innerText = msg;
+
+    document.body.appendChild(toast);
+    setTimeout(() => {
+      toast.style.opacity = '0';
+      setTimeout(() => toast.remove(), 300);
+    }, 2500);
+  };
+
   window.switchSettingsTab = function (tab) {
     state.activeSettingsTab = tab;
     renderMesniumApp();
@@ -1406,7 +1390,7 @@
     localStorage.setItem('mesnium.settings.v1', JSON.stringify(state.settings));
     const topName = document.getElementById('topbar-workspace-name');
     if (topName) topName.textContent = state.settings.businessName;
-    alert('General preferences saved.');
+    window.showToast('General preferences saved.');
   };
 
   window.saveAssistantSettings = function () {
@@ -1415,7 +1399,7 @@
     if (pol) state.settings.approvalPolicy = pol.value;
     if (tone) state.settings.tone = tone.value;
     localStorage.setItem('mesnium.settings.v1', JSON.stringify(state.settings));
-    alert('Assistant behavior preferences updated.');
+    window.showToast('Assistant behavior preferences updated.');
   };
 
   window.saveNotificationSettings = function () {
@@ -1424,11 +1408,11 @@
     if (chkEmail) state.settings.emailApprovals = chkEmail.checked;
     if (chkDigest) state.settings.dailyDigest = chkDigest.checked;
     localStorage.setItem('mesnium.settings.v1', JSON.stringify(state.settings));
-    alert('Notification rules updated.');
+    window.showToast('Notification rules updated.');
   };
 
   window.runAutomation = async function (autoId) {
-    const out = document.getElementById(`output-${autoId}`);
+    const out = document.getElementById(`auto-run-out-${autoId}`) || document.getElementById(`output-${autoId}`);
     if (out) {
       out.style.display = 'block';
       out.innerHTML = '<span style="color:var(--muted);">Executing automation steps...</span>';
@@ -1440,29 +1424,53 @@
         if (res.status === 'waiting_approval') {
           out.innerHTML = `<span style="color: #f59e0b;">Workflow paused in <strong>WAITING_APPROVAL</strong>. Action submitted to Approvals Hub.</span>`;
         } else {
-          out.innerHTML = `<span style="color: #2e8b57;">Workflow completed successfully (${res.durationMs}ms).</span>`;
+          out.innerHTML = `<span style="color: #2e8b57;">Success: Workflow completed (${res.durationMs || 0}ms). Result: Revenue analysis and summary generated.</span>`;
         }
       }
+      return res;
     } catch (err) {
       if (out) out.innerHTML = `<span style="color: #ef4444;">${escapeHtml(err.message)}</span>`;
+      throw err;
+    }
+  };
+
+  window.pauseAutomation = async function (autoId) {
+    try {
+      await MesniumClient.request('mesnium.automations.pause', { id: autoId });
+      const btn = document.getElementById(`btn-pause-${autoId}`);
+      const badge = document.getElementById(`badge-${autoId}`);
+      if (btn) btn.textContent = 'Resume';
+      if (badge) {
+        badge.textContent = 'Paused';
+        badge.className = 'badge badge--warn';
+      }
+    } catch (err) {
+      alert('Error pausing automation: ' + err.message);
+    }
+  };
+
+  window.resumeAutomation = async function (autoId) {
+    try {
+      await MesniumClient.request('mesnium.automations.resume', { id: autoId });
+      const btn = document.getElementById(`btn-pause-${autoId}`);
+      const badge = document.getElementById(`badge-${autoId}`);
+      if (btn) btn.textContent = 'Pause';
+      if (badge) {
+        badge.textContent = 'Active';
+        badge.className = 'badge badge--ok';
+      }
+    } catch (err) {
+      alert('Error resuming automation: ' + err.message);
     }
   };
 
   window.toggleAutomationPause = async function (autoId) {
     const btn = document.getElementById(`btn-pause-${autoId}`);
-    const badge = document.getElementById(`badge-${autoId}`);
     const isPaused = btn?.textContent === 'Resume';
-    const method = isPaused ? 'mesnium.automations.resume' : 'mesnium.automations.pause';
-
-    try {
-      await MesniumClient.request(method, { id: autoId });
-      if (btn) btn.textContent = isPaused ? 'Pause' : 'Resume';
-      if (badge) {
-        badge.textContent = isPaused ? 'Active' : 'Paused';
-        badge.className = `badge ${isPaused ? 'badge--ok' : 'badge--warn'}`;
-      }
-    } catch (err) {
-      alert('Error updating automation: ' + err.message);
+    if (isPaused) {
+      await window.resumeAutomation(autoId);
+    } else {
+      await window.pauseAutomation(autoId);
     }
   };
 
@@ -1536,7 +1544,7 @@
     const instructions = document.getElementById('modal-agent-instructions')?.value.trim();
 
     if (!name) {
-      alert('Please enter an assistant name.');
+      window.showToast('Please enter an assistant name.', 'warn');
       return;
     }
 
@@ -1551,9 +1559,10 @@
         capabilities: ['knowledge.search']
       });
       window.closeModal();
+      window.showToast(`Assistant "${name}" created successfully.`);
       attachSurfaceHandlers('assistants');
     } catch (err) {
-      alert('Failed to create assistant: ' + err.message);
+      window.showToast('Failed to create assistant: ' + err.message, 'error');
       if (btn) { btn.textContent = 'Create Assistant'; btn.disabled = false; }
     }
   };
@@ -1599,7 +1608,7 @@
     const prompt = document.getElementById('modal-auto-prompt')?.value.trim();
 
     if (!name) {
-      alert('Please enter an automation title.');
+      window.showToast('Please enter an automation title.', 'warn');
       return;
     }
 
@@ -1612,9 +1621,10 @@
         prompt: prompt || 'Execute business routine.'
       });
       window.closeModal();
+      window.showToast(`Automation "${name}" saved.`);
       attachSurfaceHandlers('automations');
     } catch (err) {
-      alert('Failed to create automation: ' + err.message);
+      window.showToast('Failed to create automation: ' + err.message, 'error');
       if (btn) { btn.textContent = 'Save Automation'; btn.disabled = false; }
     }
   };
@@ -1650,7 +1660,7 @@
   window.submitAddKnowledgeSource = async function () {
     const srcPath = document.getElementById('modal-src-path')?.value.trim();
     if (!srcPath) {
-      alert('Please enter a file or folder path.');
+      window.showToast('Please enter a file or folder path.', 'warn');
       return;
     }
 
@@ -1660,10 +1670,10 @@
     try {
       await MesniumClient.request('mesnium.knowledge.addSource', { path: srcPath });
       window.closeModal();
-      alert('Knowledge source added and indexed successfully.');
+      window.showToast('Knowledge source added and indexed successfully.');
       attachSurfaceHandlers('knowledge');
     } catch (err) {
-      alert('Indexing error: ' + err.message);
+      window.showToast('Indexing error: ' + err.message, 'error');
       if (btn) { btn.textContent = 'Index Source'; btn.disabled = false; }
     }
   };

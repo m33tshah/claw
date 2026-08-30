@@ -14,6 +14,11 @@
     <link rel="manifest" href="./manifest.webmanifest" />
     <script>
       (function () {
+        try {
+          if (window.__OPENCLAW_NATIVE_CONTROL_AUTH__) {
+            window.__MESNIUM_AUTH__ = Object.assign({}, window.__OPENCLAW_NATIVE_CONTROL_AUTH__);
+          }
+        } catch (e) {}
         var THEMES = { claw: 1, knot: 1, dash: 1 };
         var MODES = { system: 1, light: 1, dark: 1 };
         var LEGACY = {
