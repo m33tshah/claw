@@ -193,7 +193,7 @@ import { t as GatewayClient } from '../assets/gateway-CWCQz7bR.js';
 
   // --- 3. APPLICATION STATE STORE ---
   const state = {
-    activeRoute: 'overview',
+    activeRoute: null,
     sidebarCollapsed: false,
     activeSettingsTab: 'general',
     settings: {
@@ -219,9 +219,14 @@ import { t as GatewayClient } from '../assets/gateway-CWCQz7bR.js';
     automationsList: [],
     knowledgeSources: [],
     approvalsList: [],
-    activityList: [],
-    connectionsStatus: null,
-    overviewData: null
+    activityLedger: [],
+    overviewData: {
+      agentsCount: 0,
+      knowledgeDocsCount: 0,
+      integrationsCount: 0,
+      pendingApprovalsCount: 0,
+      recentActivity: []
+    }
   };
 
   // Load saved settings from localStorage
@@ -241,7 +246,7 @@ import { t as GatewayClient } from '../assets/gateway-CWCQz7bR.js';
     if (status === 'connected') {
       dot.className = 'status-dot status-dot--online';
       label.textContent = 'Engine Connected';
-      label.style.color = 'var(--text)';
+      label.style.color = 'var(--text-strong)';
     } else if (status === 'connecting') {
       dot.className = 'status-dot status-dot--warn';
       label.textContent = 'Connecting...';
@@ -267,24 +272,25 @@ import { t as GatewayClient } from '../assets/gateway-CWCQz7bR.js';
   // --- 5. ROUTE RESOLUTION ---
   function getRouteFromLocation() {
     const hash = (window.location.hash || '').replace(/^#\/?/, '').split('?')[0].split('/')[0] || '';
-    const path = (window.location.pathname || '').replace(/^\//, '').split('?')[0].split('/')[0] || '';
-    const raw = hash || (path && path !== 'index.html' ? path : '') || state.activeRoute || 'overview';
+    const raw = hash || 'overview';
 
-    if (raw === 'chat' || raw === 'inbox') return 'inbox';
-    if (raw === 'agents' || raw === 'assistants') return 'assistants';
-    if (raw === 'cron' || raw === 'automations') return 'automations';
-    if (raw === 'dreaming' || raw === 'dreams' || raw === 'knowledge') return 'knowledge';
+    if (raw === 'inbox' || raw === 'chat') return 'inbox';
+    if (raw === 'assistants' || raw === 'agents') return 'assistants';
+    if (raw === 'automations' || raw === 'cron') return 'automations';
+    if (raw === 'knowledge' || raw === 'dreaming' || raw === 'dreams') return 'knowledge';
     if (raw === 'approvals') return 'approvals';
-    if (raw === 'workboard' || raw === 'activity') return 'activity';
-    if (raw === 'channels' || raw === 'connections') return 'connections';
-    if (raw === 'config' || raw === 'settings') return 'settings';
+    if (raw === 'activity' || raw === 'workboard') return 'activity';
+    if (raw === 'connections' || raw === 'channels') return 'connections';
+    if (raw === 'settings' || raw === 'config') return 'settings';
     return 'overview';
   }
 
   window.navigateTo = function (route) {
-    state.activeRoute = route;
-    window.location.hash = `#/${route}`;
-    renderMesniumApp();
+    if (window.location.hash === `#/${route}`) {
+      renderMesniumApp();
+    } else {
+      window.location.hash = `#/${route}`;
+    }
   };
   window.getActiveRoute = function () {
     return state.activeRoute;
@@ -315,9 +321,7 @@ import { t as GatewayClient } from '../assets/gateway-CWCQz7bR.js';
   // --- 7. MAIN RENDERER ---
   function renderMesniumApp() {
     const container = ensureMesniumShell();
-    if (!state.activeRoute) {
-      state.activeRoute = getRouteFromLocation();
-    }
+    state.activeRoute = getRouteFromLocation();
     document.title = `${ROUTE_META[state.activeRoute]?.title || 'Studio'} — Mesnium`;
 
     const pendingCount = state.approvalsList.length;
@@ -611,7 +615,7 @@ import { t as GatewayClient } from '../assets/gateway-CWCQz7bR.js';
                 <h2>Business Assistants</h2>
                 <p class="surface-sub">Autonomous AI employees scoped with explicit knowledge and capabilities.</p>
               </div>
-              <button class="btn btn--primary" onclick="window.openCreateAssistantModal()">+ Create Assistant</button>
+              <button class="btn btn--primary" id="btn-open-create-assistant" onclick="window.openCreateAssistantModal()">+ Create Assistant</button>
             </div>
 
             <!-- Task Runner Bar -->
@@ -644,7 +648,7 @@ import { t as GatewayClient } from '../assets/gateway-CWCQz7bR.js';
                 <h2>Automations Studio</h2>
                 <p class="surface-sub">Conversational business workflows powered by autonomous assistants and deterministic safety safeguards.</p>
               </div>
-              <button class="btn btn--primary" onclick="window.openCreateAutomationModal()">+ Create Automation</button>
+              <button class="btn btn--primary" id="btn-open-create-automation" onclick="window.openCreateAutomationModal()">+ Create Automation</button>
             </div>
 
             <div class="automations-list" id="automations-list-container">
@@ -661,7 +665,7 @@ import { t as GatewayClient } from '../assets/gateway-CWCQz7bR.js';
                 <h2>Business Knowledge Center</h2>
                 <p class="surface-sub">Multi-format business documents, spreadsheets, slides, and reports indexed with hybrid RRF retrieval.</p>
               </div>
-              <button class="btn btn--primary" onclick="window.openAddKnowledgeModal()">+ Add Knowledge Source</button>
+              <button class="btn btn--primary" id="btn-open-add-knowledge" onclick="window.openAddKnowledgeModal()">+ Add Knowledge Source</button>
             </div>
 
             <div class="knowledge-search-bar">
@@ -910,6 +914,15 @@ import { t as GatewayClient } from '../assets/gateway-CWCQz7bR.js';
   async function attachSurfaceHandlers(route) {
     // 1. Overview Handlers
     if (route === 'overview') {
+      const btnInbox = document.getElementById('btn-shortcut-inbox');
+      const btnAssistants = document.getElementById('btn-shortcut-assistants');
+      const btnKnowledge = document.getElementById('btn-shortcut-knowledge');
+      const btnApprovals = document.getElementById('btn-shortcut-approvals');
+      if (btnInbox) btnInbox.onclick = () => window.navigateTo('inbox');
+      if (btnAssistants) btnAssistants.onclick = () => window.navigateTo('assistants');
+      if (btnKnowledge) btnKnowledge.onclick = () => window.navigateTo('knowledge');
+      if (btnApprovals) btnApprovals.onclick = () => window.navigateTo('approvals');
+
       try {
         const data = await MesniumClient.request('mesnium.overview.get');
         state.overviewData = data;
@@ -945,15 +958,6 @@ import { t as GatewayClient } from '../assets/gateway-CWCQz7bR.js';
             tbody.innerHTML = `<tr><td colspan="5" class="table-empty-cell">No business outcomes recorded yet. Run an assistant task or automation to record activity.</td></tr>`;
           }
         }
-
-        const btnInbox = document.getElementById('btn-shortcut-inbox');
-        const btnAssistants = document.getElementById('btn-shortcut-assistants');
-        const btnKnowledge = document.getElementById('btn-shortcut-knowledge');
-        const btnApprovals = document.getElementById('btn-shortcut-approvals');
-        if (btnInbox) btnInbox.onclick = () => window.navigateTo('inbox');
-        if (btnAssistants) btnAssistants.onclick = () => window.navigateTo('assistants');
-        if (btnKnowledge) btnKnowledge.onclick = () => window.navigateTo('knowledge');
-        if (btnApprovals) btnApprovals.onclick = () => window.navigateTo('approvals');
       } catch (err) {
         const sub = document.getElementById('overview-hero-subtext');
         if (sub) sub.textContent = `Connecting to Mesnium Gateway... (${err.message})`;
@@ -961,70 +965,140 @@ import { t as GatewayClient } from '../assets/gateway-CWCQz7bR.js';
     }
 
     // 2. Inbox Handlers
+    window.renderInboxThread = function (container) {
+      const target = container || document.getElementById('inbox-thread-container');
+      if (!target) return;
+      target.innerHTML = state.inboxThread.map(msg => `
+        <div class="thread-message thread-message--${msg.sender}">
+          <div class="message-meta">
+            <span class="message-sender-name">${msg.sender === 'user' ? 'Operator' : escapeHtml(msg.assistantName || 'Assistant')}</span>
+            <span class="message-time">${msg.time}</span>
+          </div>
+          <div class="message-bubble">${escapeHtml(msg.text)}</div>
+          ${msg.sources && msg.sources.length > 0 ? `
+            <div style="font-size:11px; color:var(--muted); margin-top:4px; padding-left:4px;">
+              <strong>Sources:</strong> ${escapeHtml(msg.sources.join(', '))} ${msg.durationMs ? `&bull; ${msg.durationMs}ms` : ''}
+            </div>
+          ` : ''}
+        </div>
+      `).join('');
+      target.scrollTop = target.scrollHeight;
+    };
+
+    window.handleInboxSend = async function () {
+      const liveInput = document.getElementById('inbox-prompt-input');
+      const liveSelect = document.getElementById('inbox-assistant-select');
+      const liveContainer = document.getElementById('inbox-thread-container');
+      const liveBtn = document.getElementById('btn-inbox-send');
+
+      const prompt = liveInput?.value.trim();
+      if (!prompt) return;
+      const agentId = liveSelect?.value || 'agent_sales_assistant';
+
+      // Add user prompt to thread immediately
+      state.inboxThread.push({
+        id: 'msg_' + Date.now(),
+        sender: 'user',
+        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        text: prompt
+      });
+
+      if (liveInput) liveInput.value = '';
+      window.renderInboxThread(liveContainer);
+
+      if (liveBtn) {
+        liveBtn.textContent = 'Generating...';
+        liveBtn.disabled = true;
+      }
+
+      try {
+        const res = await MesniumClient.request('mesnium.agents.run', { agentId, prompt });
+        state.inboxThread.push({
+          id: 'msg_' + Date.now(),
+          sender: 'assistant',
+          assistantName: res.agentName || 'Assistant',
+          time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          text: res.answer,
+          sources: res.sourcesConsulted,
+          durationMs: res.durationMs
+        });
+        window.renderInboxThread(liveContainer);
+      } catch (err) {
+        state.inboxThread.push({
+          id: 'msg_err_' + Date.now(),
+          sender: 'assistant',
+          assistantName: 'System',
+          time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          text: `Execution error: ${err.message}`
+        });
+        window.renderInboxThread(liveContainer);
+      } finally {
+        if (liveBtn) {
+          liveBtn.textContent = 'Generate & Reply';
+          liveBtn.disabled = false;
+        }
+      }
+    };
+
     if (route === 'inbox') {
       const btnSend = document.getElementById('btn-inbox-send');
       const inputPrompt = document.getElementById('inbox-prompt-input');
-      const selectAgent = document.getElementById('inbox-assistant-select');
-      const outBox = document.getElementById('inbox-composer-output');
-      const threadContainer = document.getElementById('inbox-thread-container');
 
-      const handleInboxReply = async () => {
-        const prompt = inputPrompt?.value.trim();
-        if (!prompt) return;
-        const agentId = selectAgent?.value || 'agent_sales_assistant';
-
-        // Add user prompt to thread immediately
-        state.inboxThread.push({
-          id: 'msg_' + Date.now(),
-          sender: 'user',
-          time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-          text: prompt
-        });
-
-        inputPrompt.value = '';
-        renderInboxThread(threadContainer);
-
-        btnSend.textContent = 'Generating...';
-        btnSend.disabled = true;
-
-        try {
-          const res = await MesniumClient.request('mesnium.agents.run', { agentId, prompt });
-          state.inboxThread.push({
-            id: 'msg_' + Date.now(),
-            sender: 'assistant',
-            assistantName: res.agentName || 'Assistant',
-            time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-            text: res.answer,
-            sources: res.sourcesConsulted,
-            durationMs: res.durationMs
-          });
-          renderInboxThread(threadContainer);
-        } catch (err) {
-          state.inboxThread.push({
-            id: 'msg_err_' + Date.now(),
-            sender: 'assistant',
-            assistantName: 'System',
-            time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-            text: `Execution error: ${err.message}`
-          });
-          renderInboxThread(threadContainer);
-        } finally {
-          btnSend.textContent = 'Generate & Reply';
-          btnSend.disabled = false;
-        }
-      };
-
-      if (btnSend) btnSend.onclick = handleInboxReply;
-      if (inputPrompt) inputPrompt.onkeydown = (e) => { if (e.key === 'Enter') handleInboxReply(); };
+      if (btnSend) btnSend.onclick = () => window.handleInboxSend();
+      if (inputPrompt) inputPrompt.onkeydown = (e) => { if (e.key === 'Enter') window.handleInboxSend(); };
     }
 
     // 3. Assistants Handlers
     if (route === 'assistants') {
+      const btnCreate = document.getElementById('btn-open-create-assistant');
       const btnRun = document.getElementById('btn-assistants-run');
       const inputPrompt = document.getElementById('assistants-prompt-input');
-      const selectAgent = document.getElementById('assistants-select');
-      const outBox = document.getElementById('assistants-run-output');
       const cardsContainer = document.getElementById('assistants-cards-container');
+
+      if (btnCreate) btnCreate.onclick = () => window.openCreateAssistantModal();
+
+      const handleRun = async () => {
+        const liveInput = document.getElementById('assistants-prompt-input');
+        const liveSelect = document.getElementById('assistants-select');
+        const liveBtn = document.getElementById('btn-assistants-run');
+        const liveOut = document.getElementById('assistants-run-output');
+
+        const prompt = liveInput?.value.trim();
+        if (!prompt) return;
+        const agentId = liveSelect?.value || state.assistantsList[0]?.id;
+
+        if (liveBtn) {
+          liveBtn.textContent = 'Running...';
+          liveBtn.disabled = true;
+        }
+        if (liveOut) {
+          liveOut.style.display = 'block';
+          liveOut.innerHTML = '<span style="color: var(--muted);">Assistant is retrieving knowledge and reasoning over data...</span>';
+        }
+
+        try {
+          const res = await MesniumClient.request('mesnium.agents.run', { agentId, prompt });
+          if (liveOut) {
+            liveOut.innerHTML = `
+              <div style="font-weight:600; color:var(--text-strong); margin-bottom:4px;">${escapeHtml(res.agentName)}:</div>
+              <div style="line-height:1.5; color:var(--text);">${escapeHtml(res.answer)}</div>
+              <div style="margin-top:8px; font-size:11.5px; color:var(--muted); border-top:1px dashed var(--border); padding-top:6px;">
+                <strong>Sources Cited:</strong> ${(res.sourcesConsulted || []).join(', ') || 'Direct knowledge'} &bull; <strong>Duration:</strong> ${res.durationMs}ms
+              </div>
+            `;
+          }
+        } catch (err) {
+          if (liveOut) liveOut.innerHTML = `<span style="color: #ef4444;">Execution error: ${escapeHtml(err.message)}</span>`;
+        } finally {
+          if (liveBtn) {
+            liveBtn.textContent = 'Run';
+            liveBtn.disabled = false;
+          }
+        }
+      };
+
+      if (btnRun) btnRun.onclick = handleRun;
+      if (inputPrompt) inputPrompt.onkeydown = (e) => { if (e.key === 'Enter') handleRun(); };
 
       try {
         const data = await MesniumClient.request('mesnium.agents.list');
@@ -1066,40 +1140,13 @@ import { t as GatewayClient } from '../assets/gateway-CWCQz7bR.js';
       } catch (err) {
         if (cardsContainer) cardsContainer.innerHTML = `<div class="table-empty-cell" style="color:#ef4444;">Failed to load assistants: ${escapeHtml(err.message)}</div>`;
       }
-
-      const handleRun = async () => {
-        const prompt = inputPrompt?.value.trim();
-        if (!prompt) return;
-        const agentId = selectAgent?.value || state.assistantsList[0]?.id;
-
-        btnRun.textContent = 'Running...';
-        btnRun.disabled = true;
-        outBox.style.display = 'block';
-        outBox.innerHTML = '<span style="color: var(--muted);">Assistant is retrieving knowledge and reasoning over data...</span>';
-
-        try {
-          const res = await MesniumClient.request('mesnium.agents.run', { agentId, prompt });
-          outBox.innerHTML = `
-            <div style="font-weight:600; color:var(--text-strong); margin-bottom:4px;">${escapeHtml(res.agentName)}:</div>
-            <div style="line-height:1.5; color:var(--text);">${escapeHtml(res.answer)}</div>
-            <div style="margin-top:8px; font-size:11.5px; color:var(--muted); border-top:1px dashed var(--border); padding-top:6px;">
-              <strong>Sources Cited:</strong> ${(res.sourcesConsulted || []).join(', ') || 'Direct knowledge'} &bull; <strong>Duration:</strong> ${res.durationMs}ms
-            </div>
-          `;
-        } catch (err) {
-          outBox.innerHTML = `<span style="color: #ef4444;">Execution error: ${escapeHtml(err.message)}</span>`;
-        } finally {
-          btnRun.textContent = 'Run';
-          btnRun.disabled = false;
-        }
-      };
-
-      if (btnRun) btnRun.onclick = handleRun;
-      if (inputPrompt) inputPrompt.onkeydown = (e) => { if (e.key === 'Enter') handleRun(); };
     }
 
     // 4. Automations Handlers
     if (route === 'automations') {
+      const btnCreateAuto = document.getElementById('btn-open-create-automation');
+      if (btnCreateAuto) btnCreateAuto.onclick = () => window.openCreateAutomationModal();
+
       const container = document.getElementById('automations-list-container');
       try {
         const data = await MesniumClient.request('mesnium.automations.list');
@@ -1135,6 +1182,14 @@ import { t as GatewayClient } from '../assets/gateway-CWCQz7bR.js';
                 </div>
               </div>
             `).join('');
+
+            // Synchronously bind click listeners to all automation buttons
+            state.automationsList.forEach(auto => {
+              const runBtn = document.getElementById(`btn-run-${auto.id}`);
+              const pauseBtn = document.getElementById(`btn-pause-${auto.id}`);
+              if (runBtn) runBtn.onclick = () => window.runAutomation(auto.id);
+              if (pauseBtn) pauseBtn.onclick = () => window.toggleAutomationPause(auto.id);
+            });
           } else {
             container.innerHTML = `
               <div class="table-empty-cell" style="padding: 30px; text-align:center;">
@@ -1150,6 +1205,9 @@ import { t as GatewayClient } from '../assets/gateway-CWCQz7bR.js';
 
     // 5. Knowledge Handlers
     if (route === 'knowledge') {
+      const btnAdd = document.getElementById('btn-open-add-knowledge');
+      if (btnAdd) btnAdd.onclick = () => window.openAddKnowledgeModal();
+
       const searchInput = document.getElementById('knowledge-search-input');
       const tbody = document.getElementById('knowledge-search-tbody');
 
@@ -1167,13 +1225,20 @@ import { t as GatewayClient } from '../assets/gateway-CWCQz7bR.js';
             try {
               const res = await MesniumClient.request('mesnium.knowledge.search', { query, limit: 5 });
               if (res.hits && res.hits.length > 0) {
-                tbody.innerHTML = res.hits.map(h => `
-                  <tr>
-                    <td><strong>${escapeHtml(h.filename)}</strong><div style="font-size:12px; color:var(--muted-strong); margin-top:4px;">${escapeHtml(h.content ? h.content.slice(0, 140) + '...' : '')}</div></td>
-                    <td><span class="format-tag">${escapeHtml(h.provenance || 'Document Section')}</span></td>
-                    <td><span class="badge badge--ok">${h.score ? Math.round(h.score * 100) + '%' : 'Matched'}</span></td>
-                  </tr>
-                `).join('');
+                tbody.innerHTML = res.hits.map(h => {
+                  let provLabel = 'Document Section';
+                  if (typeof h.provenance === 'string') provLabel = h.provenance;
+                  else if (h.provenance && typeof h.provenance === 'object') {
+                    provLabel = h.provenance.sheetName ? `Sheet: ${h.provenance.sheetName}` : (h.provenance.section || 'Document Section');
+                  }
+                  return `
+                    <tr>
+                      <td><strong>${escapeHtml(h.filename)}</strong><div style="font-size:12px; color:var(--muted-strong); margin-top:4px;">${escapeHtml(h.content ? h.content.slice(0, 140) + '...' : '')}</div></td>
+                      <td><span class="format-tag">${escapeHtml(provLabel)}</span></td>
+                      <td><span class="badge badge--ok">${h.score ? Math.round(h.score * 100) + '%' : 'Matched'}</span></td>
+                    </tr>
+                  `;
+                }).join('');
               } else {
                 tbody.innerHTML = `<tr><td colspan="3" class="table-empty-cell">No matching documents found in knowledge base.</td></tr>`;
               }
@@ -1227,12 +1292,20 @@ import { t as GatewayClient } from '../assets/gateway-CWCQz7bR.js';
                 <div class="approval-footer">
                   <div class="approval-meta-time">Requested at ${new Date(a.requestedAt).toLocaleTimeString()}</div>
                   <div class="approval-actions-row">
-                    <button class="btn btn--secondary" onclick="window.rejectApprovalAction('${a.id}')">Reject Action</button>
-                    <button class="btn btn--primary" onclick="window.approveApprovalAction('${a.id}')">Approve & Execute</button>
+                    <button class="btn btn--secondary" id="btn-reject-${a.id}" onclick="window.rejectApprovalAction('${a.id}')">Reject Action</button>
+                    <button class="btn btn--primary" id="btn-approve-${a.id}" onclick="window.approveApprovalAction('${a.id}')">Approve & Execute</button>
                   </div>
                 </div>
               </div>
             `).join('');
+
+            // Synchronously bind click listeners to all approval buttons
+            state.approvalsList.forEach(a => {
+              const appBtn = document.getElementById(`btn-approve-${a.id}`);
+              const rejBtn = document.getElementById(`btn-reject-${a.id}`);
+              if (appBtn) appBtn.onclick = () => window.approveApprovalAction(a.id);
+              if (rejBtn) rejBtn.onclick = () => window.rejectApprovalAction(a.id);
+            });
           } else {
             containerCards.innerHTML = `
               <div class="mesnium-card" style="text-align:center; padding: 40px 20px;">
@@ -1276,6 +1349,9 @@ import { t as GatewayClient } from '../assets/gateway-CWCQz7bR.js';
 
     // 8. Connections Handlers
     if (route === 'connections') {
+      const btnWa = document.getElementById('btn-connect-whatsapp');
+      if (btnWa) btnWa.onclick = () => window.openWhatsAppModal();
+
       const grid = document.getElementById('connections-grid-container');
       try {
         const data = await MesniumClient.request('mesnium.connections.status');
@@ -1315,7 +1391,7 @@ import { t as GatewayClient } from '../assets/gateway-CWCQz7bR.js';
                     <div class="conn-account">${data.whatsapp?.status === 'CONNECTED' ? 'Connected' : 'Not Connected'}</div>
                   </div>
                 </div>
-                <button class="btn btn--primary btn--sm" onclick="window.openWhatsAppModal()">Connect WhatsApp</button>
+                <button class="btn btn--primary btn--sm" id="btn-connect-whatsapp" onclick="window.openWhatsAppModal()">Connect WhatsApp</button>
               </div>
               <div class="conn-body-desc">
                 Connect your business WhatsApp number so Mesnium assistants can receive inquiries, answer questions from knowledge, and qualify leads automatically.
@@ -1337,6 +1413,12 @@ import { t as GatewayClient } from '../assets/gateway-CWCQz7bR.js';
       } catch (err) {
         if (grid) grid.innerHTML = `<div class="table-empty-cell" style="color:#ef4444;">Failed to load connection status: ${escapeHtml(err.message)}</div>`;
       }
+    }
+
+    // 9. Settings Handlers
+    if (route === 'settings') {
+      const btnSaveGeneral = document.getElementById('btn-save-general-settings');
+      if (btnSaveGeneral) btnSaveGeneral.onclick = () => window.saveGeneralSettings();
     }
   }
 
@@ -1754,6 +1836,96 @@ import { t as GatewayClient } from '../assets/gateway-CWCQz7bR.js';
         e.preventDefault();
         state.sidebarCollapsed = !state.sidebarCollapsed;
         renderMesniumApp();
+      }
+    });
+
+    // Global Event Delegator for instant real hardware pointer clicks
+    document.addEventListener('click', (e) => {
+      const target = e.target.closest('button, a, [data-action]');
+      if (!target) return;
+
+      // 1. Modals
+      if (target.id === 'btn-open-create-assistant' || target.matches('[onclick*="openCreateAssistantModal"]')) {
+        e.preventDefault();
+        window.openCreateAssistantModal();
+        return;
+      }
+      if (target.id === 'btn-open-create-automation' || target.matches('[onclick*="openCreateAutomationModal"]')) {
+        e.preventDefault();
+        window.openCreateAutomationModal();
+        return;
+      }
+      if (target.id === 'btn-open-add-knowledge' || target.matches('[onclick*="openAddKnowledgeModal"]')) {
+        e.preventDefault();
+        window.openAddKnowledgeModal();
+        return;
+      }
+      if (target.id === 'btn-connect-whatsapp' || target.matches('[onclick*="openWhatsAppModal"]')) {
+        e.preventDefault();
+        window.openWhatsAppModal();
+        return;
+      }
+      if (target.matches('.modal-close-btn, .mesnium-modal-backdrop') || target.textContent.trim() === 'Cancel') {
+        window.closeModal();
+        return;
+      }
+
+      // 2. Overview shortcuts
+      if (target.id === 'btn-shortcut-inbox') {
+        e.preventDefault();
+        window.navigateTo('inbox');
+        return;
+      }
+      if (target.id === 'btn-shortcut-assistants') {
+        e.preventDefault();
+        window.navigateTo('assistants');
+        return;
+      }
+      if (target.id === 'btn-shortcut-knowledge') {
+        e.preventDefault();
+        window.navigateTo('knowledge');
+        return;
+      }
+      if (target.id === 'btn-shortcut-approvals') {
+        e.preventDefault();
+        window.navigateTo('approvals');
+        return;
+      }
+
+      // 3. Settings Tabs
+      const tabMatch = target.id?.match(/^settings-tab-(.+)$/) || target.getAttribute('onclick')?.match(/switchSettingsTab\('([^']+)'\)/);
+      if (tabMatch) {
+        e.preventDefault();
+        window.switchSettingsTab(tabMatch[1]);
+        return;
+      }
+
+      // 4. Automations Run & Pause delegation
+      const runAutoMatch = target.id?.match(/^btn-run-(.+)$/) || target.getAttribute('onclick')?.match(/runAutomation\('([^']+)'\)/);
+      if (runAutoMatch) {
+        e.preventDefault();
+        window.runAutomation(runAutoMatch[1]);
+        return;
+      }
+      const pauseAutoMatch = target.id?.match(/^btn-pause-(.+)$/) || target.getAttribute('onclick')?.match(/toggleAutomationPause\('([^']+)'\)/);
+      if (pauseAutoMatch) {
+        e.preventDefault();
+        window.toggleAutomationPause(pauseAutoMatch[1]);
+        return;
+      }
+
+      // 5. Approvals delegation
+      const approveMatch = target.id?.match(/^btn-approve-(.+)$/) || target.getAttribute('onclick')?.match(/approveApprovalAction\('([^']+)'\)/);
+      if (approveMatch) {
+        e.preventDefault();
+        window.approveApprovalAction(approveMatch[1]);
+        return;
+      }
+      const rejectMatch = target.id?.match(/^btn-reject-(.+)$/) || target.getAttribute('onclick')?.match(/rejectApprovalAction\('([^']+)'\)/);
+      if (rejectMatch) {
+        e.preventDefault();
+        window.rejectApprovalAction(rejectMatch[1]);
+        return;
       }
     });
 
