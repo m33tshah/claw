@@ -66,6 +66,10 @@ export class MesniumActivityLedger {
     return list.slice(0, limit);
   }
 
+  listRuns(limit = 50) {
+    return this.listActivity({ limit });
+  }
+
   getRecentActivityForAgent(agentId, limit = 5) {
     return this.listActivity({ agentId, limit });
   }

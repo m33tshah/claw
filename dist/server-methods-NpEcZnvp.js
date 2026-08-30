@@ -71,6 +71,7 @@ const loadVoicewakeHandlers = lazyHandlerModule(() => import("./voicewake-CLonrS
 const loadWebHandlers = lazyHandlerModule(() => import("./web-r7OgLG5f.js"), (module) => module.webHandlers);
 const loadCrestodianHandlers = lazyHandlerModule(() => import("./crestodian-BrFw18pX.js"), (module) => module.crestodianHandlers);
 const loadWizardHandlers = lazyHandlerModule(() => import("./wizard-Cl5NHpYn.js"), (module) => module.wizardHandlers);
+const loadMesniumHandlers = lazyHandlerModule(() => import("./mesnium-rpc/handlers.js"), (module) => module.mesniumRpcHandlers);
 function authorizeGatewayMethod(method, client, params, methodRegistry) {
 	if (!client?.connect) return null;
 	if (method === "health") return null;
@@ -87,6 +88,27 @@ function authorizeGatewayMethod(method, client, params, methodRegistry) {
 	return null;
 }
 const coreGatewayHandlers = {
+	...createLazyCoreHandlers({
+		methods: [
+			"mesnium.overview.get",
+			"mesnium.agents.list",
+			"mesnium.agents.get",
+			"mesnium.agents.run",
+			"mesnium.knowledge.search",
+			"mesnium.knowledge.sources",
+			"mesnium.automations.list",
+			"mesnium.automations.get",
+			"mesnium.automations.run",
+			"mesnium.automations.pause",
+			"mesnium.automations.resume",
+			"mesnium.approvals.list",
+			"mesnium.approvals.approve",
+			"mesnium.approvals.reject",
+			"mesnium.activity.list",
+			"mesnium.connections.status"
+		],
+		loadHandlers: loadMesniumHandlers
+	}),
 	...createLazyCoreHandlers({
 		methods: ["connect"],
 		loadHandlers: loadConnectHandlers

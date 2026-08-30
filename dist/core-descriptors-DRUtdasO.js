@@ -6,6 +6,22 @@ const DYNAMIC_GATEWAY_METHOD_SCOPE = "dynamic";
 //#endregion
 //#region src/gateway/methods/core-descriptors.ts
 const CORE_GATEWAY_METHOD_SPECS = [
+	{ name: "mesnium.overview.get", scope: "operator.read" },
+	{ name: "mesnium.agents.list", scope: "operator.read" },
+	{ name: "mesnium.agents.get", scope: "operator.read" },
+	{ name: "mesnium.agents.run", scope: "operator.write" },
+	{ name: "mesnium.knowledge.search", scope: "operator.read" },
+	{ name: "mesnium.knowledge.sources", scope: "operator.read" },
+	{ name: "mesnium.automations.list", scope: "operator.read" },
+	{ name: "mesnium.automations.get", scope: "operator.read" },
+	{ name: "mesnium.automations.run", scope: "operator.write" },
+	{ name: "mesnium.automations.pause", scope: "operator.write" },
+	{ name: "mesnium.automations.resume", scope: "operator.write" },
+	{ name: "mesnium.approvals.list", scope: "operator.read" },
+	{ name: "mesnium.approvals.approve", scope: "operator.write" },
+	{ name: "mesnium.approvals.reject", scope: "operator.write" },
+	{ name: "mesnium.activity.list", scope: "operator.read" },
+	{ name: "mesnium.connections.status", scope: "operator.read" },
 	{
 		name: "health",
 		scope: "operator.read"
