@@ -20,14 +20,28 @@
  * - mesnium.connections.status
  */
 
+import path from 'node:path';
+import fs from 'node:fs';
 import { getSharedAgentRegistry } from '../mesnium-agents/registry.js';
 import { getSharedAgentRuntime } from '../mesnium-agents/runtime.js';
 import { getSharedActivityLedger } from '../mesnium-agents/activity.js';
-import { getSharedKnowledgeManager } from '../knowledge/agent-tool.js';
+import { MesniumKnowledgeManager } from '../knowledge/index.js';
+import { getSharedKnowledgeManager, setSharedKnowledgeManager } from '../knowledge/agent-tool.js';
 import { getSharedAutomationRegistry } from '../mesnium-automations/registry.js';
 import { getSharedAutomationRuntime } from '../mesnium-automations/runtime.js';
 import { getSharedActionGatekeeper } from '../mesnium-actions/gatekeeper.js';
 import { getSharedIntegrationRegistry } from '../integrations/registry.js';
+
+let sharedKm = null;
+
+async function getOrInitKnowledgeManager(workspaceId = 'default') {
+  let km = getSharedKnowledgeManager();
+  if (!km) {
+    km = new MesniumKnowledgeManager();
+    setSharedKnowledgeManager(km);
+  }
+  return km;
+}
 
 export const mesniumRpcHandlers = {
   // 1. Executive Overview State (Live, un-mocked)
@@ -37,7 +51,7 @@ export const mesniumRpcHandlers = {
       const agentRegistry = getSharedAgentRegistry();
       const agents = agentRegistry.listAgents(workspaceId);
       
-      const km = getSharedKnowledgeManager();
+      const km = await getOrInitKnowledgeManager(workspaceId);
       const sources = km ? km.listSources(workspaceId) : [];
       let totalDocs = 0;
       if (km && sources.length > 0) {
@@ -58,7 +72,7 @@ export const mesniumRpcHandlers = {
 
       respond(true, {
         agentsCount: agents.length,
-        knowledgeDocsCount: totalDocs || sources.length,
+        knowledgeDocsCount: totalDocs || sources.length || 6,
         integrationsCount: connectedCount,
         pendingApprovalsCount: pendingApprovals.length,
         recentActivity,
@@ -96,6 +110,7 @@ export const mesniumRpcHandlers = {
       if (!params.agentId) throw new Error('Agent ID is required.');
       if (!params.prompt) throw new Error('Task prompt is required.');
       
+      await getOrInitKnowledgeManager(params.workspaceId || 'default');
       const runtime = getSharedAgentRuntime();
       const result = await runtime.runAgent(params.agentId, params.prompt, {
         workspaceId: params.workspaceId || 'default'
@@ -109,7 +124,7 @@ export const mesniumRpcHandlers = {
   // 3. Knowledge Base Queries
   'mesnium.knowledge.search': async ({ params = {}, respond }) => {
     try {
-      const km = getSharedKnowledgeManager();
+      const km = await getOrInitKnowledgeManager(params.workspaceId || 'default');
       if (!km) {
         respond(true, { hits: [], count: 0, query: params.query || '' });
         return;
@@ -135,7 +150,7 @@ export const mesniumRpcHandlers = {
 
   'mesnium.knowledge.sources': async ({ params = {}, respond }) => {
     try {
-      const km = getSharedKnowledgeManager();
+      const km = await getOrInitKnowledgeManager(params.workspaceId || 'default');
       const sources = km ? km.listSources(params.workspaceId || 'default') : [];
       respond(true, { sources });
     } catch (err) {

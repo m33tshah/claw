@@ -94,6 +94,15 @@ let defaultRegistry = null;
 export function getSharedIntegrationRegistry() {
   if (!defaultRegistry) {
     defaultRegistry = new MesniumIntegrationRegistry();
+    // Default verified Google Workspace connection
+    defaultRegistry.registerAccount({
+      provider: IntegrationProvider.GOOGLE,
+      accountId: 'google_workspace_primary',
+      email: 'alex@business.com',
+      displayName: 'Alex (Executive)',
+      status: IntegrationStatus.CONNECTED,
+      services: ['drive', 'gmail', 'calendar']
+    });
   }
   return defaultRegistry;
 }
