@@ -325,6 +325,117 @@
         `;
       }
     }
+
+    // 5. Agents Surface Enhancer (for /agents)
+    if (path.includes('/agents')) {
+      const agentsContainer = document.querySelector('openclaw-agents-page, .agents-view, main');
+      if (agentsContainer && !agentsContainer.hasAttribute('data-mesnium-agents-hub')) {
+        agentsContainer.setAttribute('data-mesnium-agents-hub', 'true');
+        agentsContainer.innerHTML = `
+          <div class="mesnium-agents-hub">
+            <div class="panel-header" style="margin-bottom: 24px; display: flex; justify-content: space-between; align-items: center;">
+              <div>
+                <h2>Business Agents</h2>
+                <div class="panel-subtitle" style="color: var(--muted-strong); font-size: 13px;">Specialized autonomous agents scoped with explicit knowledge and capabilities.</div>
+              </div>
+              <button class="btn btn--primary" id="btn-create-agent">+ Create Agent</button>
+            </div>
+
+            <!-- Agent Run Bar -->
+            <div class="mesnium-agent-runner-card">
+              <div class="runner-header">
+                <span class="runner-title">Execute Agent Task</span>
+                <select id="mesnium-agent-select" class="mesnium-select">
+                  <option value="agent_research_assistant">Research Assistant (Gemini 2.5 Pro)</option>
+                  <option value="agent_sales_assistant">Sales & Operations Assistant (Gemini 2.5 Flash)</option>
+                </select>
+              </div>
+              <div class="runner-input-row">
+                <input type="text" id="mesnium-agent-prompt" placeholder="Ask agent a business question (e.g. 'What was January direct sales revenue?')..." />
+                <button class="btn btn--primary" id="btn-run-agent">Run</button>
+              </div>
+              <div id="mesnium-agent-run-result" class="runner-result" style="display: none;"></div>
+            </div>
+
+            <!-- Agents Grid -->
+            <div class="mesnium-agents-grid">
+              <div class="mesnium-agent-card">
+                <div class="agent-card-header">
+                  <div>
+                    <h3 class="agent-title">Research Assistant</h3>
+                    <span class="badge badge--ok">Active</span>
+                  </div>
+                  <span class="role-tag">Research</span>
+                </div>
+                <p class="agent-desc">Researches business documents, market notes, and knowledge sources to synthesize clear, cited briefings.</p>
+                <div class="agent-meta">
+                  <div class="meta-row"><strong>Model:</strong> Google Gemini 2.5 Pro</div>
+                  <div class="meta-row"><strong>Knowledge:</strong> All Authorized Documents</div>
+                  <div class="meta-row"><strong>Capabilities:</strong> Knowledge Search, Google Drive Read</div>
+                </div>
+                <div class="agent-card-footer">
+                  <span class="status-indicator online"></span> Operating
+                </div>
+              </div>
+
+              <div class="mesnium-agent-card">
+                <div class="agent-card-header">
+                  <div>
+                    <h3 class="agent-title">Sales & Operations Assistant</h3>
+                    <span class="badge badge--ok">Active</span>
+                  </div>
+                  <span class="role-tag">Sales</span>
+                </div>
+                <p class="agent-desc">Assists with customer proposals, meeting agendas, and inbound communications.</p>
+                <div class="agent-meta">
+                  <div class="meta-row"><strong>Model:</strong> Google Gemini 2.5 Flash</div>
+                  <div class="meta-row"><strong>Knowledge:</strong> All Authorized Documents</div>
+                  <div class="meta-row"><strong>Capabilities:</strong> Knowledge Search, Gmail Read, Calendar Read</div>
+                </div>
+                <div class="agent-card-footer">
+                  <span class="status-indicator online"></span> Operating
+                </div>
+              </div>
+            </div>
+
+            <!-- Recent Activity -->
+            <div class="mesnium-knowledge-docs-panel" style="margin-top: 28px;">
+              <div class="panel-header">
+                <h3>Recent Agent Activity</h3>
+                <span class="badge badge--ok">Ledger Live</span>
+              </div>
+              <table class="mesnium-table">
+                <thead>
+                  <tr>
+                    <th>Agent</th>
+                    <th>Task / Prompt</th>
+                    <th>Status</th>
+                    <th>Sources Consulted</th>
+                    <th>Time</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td><strong>Research Assistant</strong></td>
+                    <td>What was January direct sales revenue?</td>
+                    <td><span class="badge badge--ok">Completed</span></td>
+                    <td>sample.xlsx (Sheet: Revenue)</td>
+                    <td>Just now</td>
+                  </tr>
+                  <tr>
+                    <td><strong>Sales & Operations</strong></td>
+                    <td>Active deployments Q1 actual targets</td>
+                    <td><span class="badge badge--ok">Completed</span></td>
+                    <td>sample.docx (Metrics Table)</td>
+                    <td>5m ago</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        `;
+      }
+    }
   }
 
   function updateConnectionBadge() {

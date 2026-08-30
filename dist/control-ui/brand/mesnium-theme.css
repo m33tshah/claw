@@ -782,5 +782,156 @@ input:focus, textarea:focus, select:focus {
   letter-spacing: 0.02em !important;
 }
 
+/* ==========================================================================
+   10. BUSINESS AGENTS HUB (PHASE 11)
+   ========================================================================== */
+
+.mesnium-agents-hub {
+  padding: 24px !important;
+  max-width: 1100px !important;
+  margin: 0 auto !important;
+}
+
+.mesnium-agent-runner-card {
+  background: var(--card) !important;
+  border: 1px solid var(--border-strong) !important;
+  border-radius: var(--radius-md) !important;
+  padding: 20px !important;
+  margin-bottom: 24px !important;
+}
+
+.runner-header {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  margin-bottom: 12px !important;
+}
+
+.runner-title {
+  font-size: 14px !important;
+  font-weight: 600 !important;
+  color: var(--text-strong) !important;
+}
+
+.mesnium-select {
+  background: var(--bg-accent) !important;
+  border: 1px solid var(--border-strong) !important;
+  color: var(--text-strong) !important;
+  padding: 6px 12px !important;
+  border-radius: 4px !important;
+  font-size: 12.5px !important;
+}
+
+.runner-input-row {
+  display: flex !important;
+  gap: 10px !important;
+}
+
+.runner-input-row input {
+  flex: 1 !important;
+  background: var(--bg-accent) !important;
+  border: 1px solid var(--border-strong) !important;
+  color: var(--text-strong) !important;
+  padding: 10px 14px !important;
+  border-radius: 4px !important;
+  font-size: 13.5px !important;
+}
+
+.runner-result {
+  margin-top: 14px !important;
+  padding: 14px !important;
+  background: var(--bg-elevated) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: 4px !important;
+  font-size: 13px !important;
+  color: var(--text) !important;
+  white-space: pre-wrap !important;
+}
+
+.mesnium-agents-grid {
+  display: grid !important;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)) !important;
+  gap: 18px !important;
+}
+
+.mesnium-agent-card {
+  background: var(--card) !important;
+  border: 1px solid var(--border-strong) !important;
+  border-radius: var(--radius-md) !important;
+  padding: 20px !important;
+  display: flex !important;
+  flex-direction: column !important;
+  justify-content: space-between !important;
+}
+
+.agent-card-header {
+  display: flex !important;
+  align-items: flex-start !important;
+  justify-content: space-between !important;
+  margin-bottom: 12px !important;
+}
+
+.agent-title {
+  margin: 0 0 6px 0 !important;
+  font-size: 15.5px !important;
+  font-weight: 600 !important;
+  color: var(--text-strong) !important;
+}
+
+.role-tag {
+  background: var(--bg-accent) !important;
+  border: 1px solid var(--border-strong) !important;
+  color: var(--accent) !important;
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  padding: 2px 8px !important;
+  border-radius: 3px !important;
+  text-transform: uppercase !important;
+}
+
+.agent-desc {
+  font-size: 13px !important;
+  color: var(--muted-strong) !important;
+  margin: 0 0 16px 0 !important;
+  line-height: 1.45 !important;
+}
+
+.agent-meta {
+  background: var(--bg-accent) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: var(--radius-sm) !important;
+  padding: 10px 14px !important;
+  margin-bottom: 16px !important;
+  font-size: 12px !important;
+}
+
+.meta-row {
+  margin-bottom: 4px !important;
+  color: var(--text) !important;
+}
+
+.meta-row:last-child {
+  margin-bottom: 0 !important;
+}
+
+.agent-card-footer {
+  display: flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+  font-size: 12px !important;
+  color: var(--muted-strong) !important;
+  padding-top: 12px !important;
+  border-top: 1px dashed var(--border) !important;
+}
+
+.status-indicator.online {
+  width: 8px !important;
+  height: 8px !important;
+  border-radius: 50% !important;
+  background: #10b981 !important;
+  box-shadow: 0 0 8px rgba(16, 185, 129, 0.4) !important;
+}
+
+
 
 
