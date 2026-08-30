@@ -121,6 +121,30 @@ export const mesniumRpcHandlers = {
     }
   },
 
+  'mesnium.agents.create': async ({ params = {}, respond }) => {
+    try {
+      if (!params.name) throw new Error('Agent name is required.');
+      const agentRegistry = getSharedAgentRegistry();
+      const agentId = params.id || `agent_${params.name.toLowerCase().replace(/[^a-z0-9]+/g, '_')}_${Date.now()}`;
+      const agent = agentRegistry.createAgent({
+        id: agentId,
+        name: params.name,
+        role: params.role || 'operations',
+        description: params.description || `Custom assistant for ${params.name}`,
+        instructions: params.instructions || 'You are a dedicated business assistant. Execute tasks accurately using authorized knowledge.',
+        model: { provider: 'google', modelId: 'gemini-2.5-flash' },
+        knowledgeScopes: ['all'],
+        capabilities: params.capabilities || ['knowledge.search'],
+        permissions: { read: true, propose: true, execute: false },
+        status: 'active',
+        workspaceId: params.workspaceId || 'default'
+      });
+      respond(true, { agent });
+    } catch (err) {
+      respond(false, void 0, { message: err.message });
+    }
+  },
+
   // 3. Knowledge Base Queries
   'mesnium.knowledge.search': async ({ params = {}, respond }) => {
     try {
@@ -138,7 +162,7 @@ export const mesniumRpcHandlers = {
           filename: h.filename,
           content: h.content,
           provenance: h.provenance,
-          score: h.score
+          score: h.scores?.hybrid !== undefined ? h.scores.hybrid : (h.score !== undefined ? h.score : 0.85)
         })),
         count: hits.length,
         query: params.query
@@ -158,11 +182,55 @@ export const mesniumRpcHandlers = {
     }
   },
 
+  'mesnium.knowledge.addSource': async ({ params = {}, respond }) => {
+    try {
+      if (!params.path) throw new Error('Source path is required.');
+      const km = await getOrInitKnowledgeManager(params.workspaceId || 'default');
+      const source = km.addSource({
+        workspaceId: params.workspaceId || 'default',
+        path: params.path,
+        name: params.name || path.basename(params.path)
+      });
+      const indexResult = await km.indexSource(source.id);
+      respond(true, { source, indexResult });
+    } catch (err) {
+      respond(false, void 0, { message: err.message });
+    }
+  },
+
   // 4. Automations Studio
   'mesnium.automations.list': async ({ params = {}, respond }) => {
     try {
       const automations = getSharedAutomationRegistry().listAutomations(params.workspaceId || 'default');
       respond(true, { automations });
+    } catch (err) {
+      respond(false, void 0, { message: err.message });
+    }
+  },
+
+  'mesnium.automations.create': async ({ params = {}, respond }) => {
+    try {
+      if (!params.name) throw new Error('Automation name is required.');
+      const automationRegistry = getSharedAutomationRegistry();
+      const autoId = params.id || `auto_${params.name.toLowerCase().replace(/[^a-z0-9]+/g, '_')}_${Date.now()}`;
+      const automation = automationRegistry.createAutomation({
+        id: autoId,
+        workspaceId: params.workspaceId || 'default',
+        name: params.name,
+        description: params.description || 'Custom business automation',
+        status: 'active',
+        trigger: params.trigger || {
+          type: 'schedule',
+          schedule: { kind: 'cron', expr: '0 9 * * 1-5', tz: 'America/New_York', label: 'Every weekday morning' }
+        },
+        conditions: [],
+        steps: params.steps || [
+          { id: 'step_1', type: 'run_agent', agentId: params.agentId || 'agent_sales_assistant', payload: { prompt: params.prompt || 'Process pending business tasks.' } }
+        ],
+        agentId: params.agentId || 'agent_sales_assistant',
+        approvalPolicy: params.approvalPolicy || 'human_approval'
+      });
+      respond(true, { automation });
     } catch (err) {
       respond(false, void 0, { message: err.message });
     }

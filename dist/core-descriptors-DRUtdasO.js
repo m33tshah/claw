@@ -20,6 +20,9 @@ const CORE_GATEWAY_METHOD_SPECS = [
 	{ name: "mesnium.approvals.list", scope: "operator.read" },
 	{ name: "mesnium.approvals.approve", scope: "operator.write" },
 	{ name: "mesnium.approvals.reject", scope: "operator.write" },
+	{ name: "mesnium.agents.create", scope: "operator.write" },
+	{ name: "mesnium.automations.create", scope: "operator.write" },
+	{ name: "mesnium.knowledge.addSource", scope: "operator.write" },
 	{ name: "mesnium.activity.list", scope: "operator.read" },
 	{ name: "mesnium.connections.status", scope: "operator.read" },
 	{

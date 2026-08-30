@@ -104,6 +104,9 @@ const coreGatewayHandlers = {
 			"mesnium.approvals.list",
 			"mesnium.approvals.approve",
 			"mesnium.approvals.reject",
+			"mesnium.agents.create",
+			"mesnium.automations.create",
+			"mesnium.knowledge.addSource",
 			"mesnium.activity.list",
 			"mesnium.connections.status"
 		],
