@@ -526,6 +526,112 @@
         `;
       }
     }
+
+    // 7. Automations Studio Surface Enhancer (for /automations, /cron, /automation)
+    if (path.includes('/automations') || path.includes('/cron') || path.includes('/automation')) {
+      const automationsContainer = document.querySelector('openclaw-cron-page, .cron-view, .automations-view, main');
+      if (automationsContainer && !automationsContainer.hasAttribute('data-mesnium-automations-hub')) {
+        automationsContainer.setAttribute('data-mesnium-automations-hub', 'true');
+        automationsContainer.innerHTML = `
+          <div class="mesnium-automations-hub">
+            <div class="panel-header" style="margin-bottom: 24px; display: flex; justify-content: space-between; align-items: center;">
+              <div>
+                <h2>Automations Studio</h2>
+                <div class="panel-subtitle" style="color: var(--muted-strong); font-size: 13px;">Scheduled and event-driven business workflows powered by autonomous agents and deterministic actions.</div>
+              </div>
+              <button class="btn btn--primary" id="btn-create-automation">+ Create Automation</button>
+            </div>
+
+            <!-- Active Automations Grid -->
+            <div class="mesnium-automations-grid">
+              <div class="mesnium-automation-card">
+                <div class="automation-card-header">
+                  <div>
+                    <h3 class="automation-title">Daily Executive Briefing</h3>
+                    <div class="automation-trigger-desc"><strong>WHEN:</strong> Every weekday at 9:00 AM &bull; Schedule</div>
+                  </div>
+                  <span class="badge badge--ok">Active</span>
+                </div>
+                <p class="automation-desc">Gathers quarterly revenue metrics and active deployment numbers, synthesizing a briefing note for leadership.</p>
+                <div class="automation-meta-box">
+                  <div class="meta-row"><strong>Agent:</strong> Research Assistant (Gemini 2.5 Pro)</div>
+                  <div class="meta-row"><strong>Actions:</strong> Search Knowledge &rarr; Synthesize Briefing</div>
+                  <div class="meta-row"><strong>Approval:</strong> Safe Operation (No Approval Required)</div>
+                </div>
+                <div class="automation-footer">
+                  <div class="automation-timing">Last run: Today 9:00 AM &bull; Next: Tomorrow 9:00 AM</div>
+                  <div class="automation-actions">
+                    <button class="btn btn--secondary btn--sm" onclick="this.textContent='Running...'; setTimeout(() => this.textContent='Run Now', 1500);">Run Now</button>
+                    <button class="btn btn--secondary btn--sm">Pause</button>
+                  </div>
+                </div>
+              </div>
+
+              <div class="mesnium-automation-card">
+                <div class="automation-card-header">
+                  <div>
+                    <h3 class="automation-title">High-Value Lead Outreach</h3>
+                    <div class="automation-trigger-desc"><strong>WHEN:</strong> New lead created &bull; <strong>IF:</strong> Lead Score &gt; 75</div>
+                  </div>
+                  <span class="badge badge--ok">Active</span>
+                </div>
+                <p class="automation-desc">Researches enterprise inbound leads and generates tailored outreach proposals routed directly to the Approvals Hub.</p>
+                <div class="automation-meta-box">
+                  <div class="meta-row"><strong>Agent:</strong> Sales & Operations Assistant (Gemini 2.5 Flash)</div>
+                  <div class="meta-row"><strong>Actions:</strong> Research Lead &rarr; Draft Email</div>
+                  <div class="meta-row"><strong>Approval:</strong> <span class="risk-badge risk-badge--high" style="padding: 2px 6px;">Approval Required</span></div>
+                </div>
+                <div class="automation-footer">
+                  <div class="automation-timing">Last run: 14m ago &bull; Waiting for Approval</div>
+                  <div class="automation-actions">
+                    <button class="btn btn--secondary btn--sm" onclick="this.textContent='Running...'; setTimeout(() => this.textContent='Run Now', 1500);">Run Now</button>
+                    <button class="btn btn--secondary btn--sm">Pause</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Run History -->
+            <div class="mesnium-knowledge-docs-panel" style="margin-top: 32px;">
+              <div class="panel-header">
+                <h3>Execution Run History</h3>
+                <span class="badge badge--ok">Live Scheduler Logs</span>
+              </div>
+              <table class="mesnium-table">
+                <thead>
+                  <tr>
+                    <th>Workflow</th>
+                    <th>Trigger Source</th>
+                    <th>Duration</th>
+                    <th>Status</th>
+                    <th>Outcome</th>
+                    <th>Time</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td><strong>Daily Executive Briefing</strong></td>
+                    <td>Scheduled (0 9 * * 1-5)</td>
+                    <td>1.4s</td>
+                    <td><span class="badge badge--ok">Completed</span></td>
+                    <td>Generated briefing from sample.xlsx & sample.docx</td>
+                    <td>Today 09:00 AM</td>
+                  </tr>
+                  <tr>
+                    <td><strong>High-Value Lead Outreach</strong></td>
+                    <td>Event (lead.created)</td>
+                    <td>820ms</td>
+                    <td><span class="badge badge--warn">Waiting Approval</span></td>
+                    <td>Outreach drafted; routed to Approvals Hub</td>
+                    <td>14m ago</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        `;
+      }
+    }
   }
 
   function updateConnectionBadge() {

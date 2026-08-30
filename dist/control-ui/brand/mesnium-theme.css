@@ -1070,6 +1070,91 @@ input:focus, textarea:focus, select:focus {
   color: #fff !important;
 }
 
+/* ==========================================================================
+   12. AUTOMATIONS STUDIO (PHASE 13)
+   ========================================================================== */
+
+.mesnium-automations-hub {
+  padding: 24px !important;
+  max-width: 1100px !important;
+  margin: 0 auto !important;
+}
+
+.mesnium-automations-grid {
+  display: grid !important;
+  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)) !important;
+  gap: 20px !important;
+}
+
+.mesnium-automation-card {
+  background: var(--card) !important;
+  border: 1px solid var(--border-strong) !important;
+  border-radius: var(--radius-md) !important;
+  padding: 20px !important;
+  display: flex !important;
+  flex-direction: column !important;
+  justify-content: space-between !important;
+}
+
+.automation-card-header {
+  display: flex !important;
+  align-items: flex-start !important;
+  justify-content: space-between !important;
+  margin-bottom: 12px !important;
+}
+
+.automation-title {
+  font-size: 15.5px !important;
+  font-weight: 600 !important;
+  color: var(--text-strong) !important;
+  margin: 0 0 4px 0 !important;
+}
+
+.automation-trigger-desc {
+  font-size: 12px !important;
+  color: var(--muted-strong) !important;
+}
+
+.automation-desc {
+  font-size: 13px !important;
+  color: var(--muted-strong) !important;
+  margin: 0 0 16px 0 !important;
+  line-height: 1.45 !important;
+}
+
+.automation-meta-box {
+  background: var(--bg-accent) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: var(--radius-sm) !important;
+  padding: 10px 14px !important;
+  margin-bottom: 16px !important;
+  font-size: 12px !important;
+}
+
+.automation-footer {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  padding-top: 12px !important;
+  border-top: 1px dashed var(--border) !important;
+}
+
+.automation-timing {
+  font-size: 11.5px !important;
+  color: var(--muted) !important;
+}
+
+.automation-actions {
+  display: flex !important;
+  gap: 8px !important;
+}
+
+.btn--sm {
+  padding: 4px 10px !important;
+  font-size: 12px !important;
+}
+
+
 
 
 
