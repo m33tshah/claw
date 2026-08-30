@@ -436,6 +436,96 @@
         `;
       }
     }
+
+    // 6. Approvals Surface Enhancer (for /approvals and /exec-approvals)
+    if (path.includes('/approvals') || path.includes('/exec-approvals')) {
+      const approvalsContainer = document.querySelector('openclaw-approvals-page, .approvals-view, main');
+      if (approvalsContainer && !approvalsContainer.hasAttribute('data-mesnium-approvals-hub')) {
+        approvalsContainer.setAttribute('data-mesnium-approvals-hub', 'true');
+        approvalsContainer.innerHTML = `
+          <div class="mesnium-approvals-hub">
+            <div class="panel-header" style="margin-bottom: 24px; display: flex; justify-content: space-between; align-items: center;">
+              <div>
+                <h2>Action Approvals Hub</h2>
+                <div class="panel-subtitle" style="color: var(--muted-strong); font-size: 13px;">Human-in-the-loop authorization gatekeeper for high-risk external agent mutations.</div>
+              </div>
+              <span class="badge badge--warn">1 Action Requires Review</span>
+            </div>
+
+            <!-- Pending Action Card -->
+            <div class="mesnium-approval-card" id="card-approval-101">
+              <div class="approval-card-header">
+                <div class="approval-agent-badge">
+                  <div class="agent-avatar">S</div>
+                  <div>
+                    <h3 class="approval-title">Send Email Outreach to Lead</h3>
+                    <div class="approval-agent-name">Requested by <strong>Sales & Operations Assistant</strong> &bull; Lead Qualification</div>
+                  </div>
+                </div>
+                <span class="risk-badge risk-badge--high">High Risk &bull; Email Send</span>
+              </div>
+
+              <div class="approval-target-box">
+                <div class="target-field"><strong>Recipient:</strong> john.smith@acme-enterprises.com</div>
+                <div class="target-field"><strong>Subject:</strong> Partnership & Trial Proposal — Mesnium OS</div>
+                <div class="target-field"><strong>Reason:</strong> Inbound lead scored 87/100 and matches target enterprise profile.</div>
+              </div>
+
+              <div class="approval-content-preview">
+                <div class="preview-label">Proposed Email Body:</div>
+                <div class="preview-text">Hi John,\n\nFollowing up on your inquiry regarding Mesnium's autonomous business operating system. I have prepared the preliminary deployment numbers and integration specifications for Acme Enterprises.\n\nPlease review the attached briefing notes at your convenience.\n\nBest regards,\nSales & Operations Team</div>
+              </div>
+
+              <div class="approval-footer">
+                <div class="approval-meta-time">Requested 12m ago &bull; Expires in 23h 48m</div>
+                <div class="approval-actions-row">
+                  <button class="btn btn--secondary" id="btn-reject-101" onclick="this.closest('.mesnium-approval-card').style.display='none'">Reject Action</button>
+                  <button class="btn btn--primary" id="btn-approve-101" onclick="this.textContent='Approved & Executed'; this.classList.add('btn--success');">Approve & Execute</button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Recent Authorization History -->
+            <div class="mesnium-knowledge-docs-panel" style="margin-top: 32px;">
+              <div class="panel-header">
+                <h3>Authorization History</h3>
+                <span class="badge badge--ok">Cryptographic Audit Log</span>
+              </div>
+              <table class="mesnium-table">
+                <thead>
+                  <tr>
+                    <th>Action</th>
+                    <th>Agent</th>
+                    <th>Target</th>
+                    <th>Authorized By</th>
+                    <th>Status</th>
+                    <th>Time</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td><strong>Draft Calendar Event</strong></td>
+                    <td>Sales & Operations Assistant</td>
+                    <td>Google Calendar (Quarterly Review)</td>
+                    <td>Meet (Operator)</td>
+                    <td><span class="badge badge--ok">Executed</span></td>
+                    <td>1 hour ago</td>
+                  </tr>
+                  <tr>
+                    <td><strong>Send Campaign Email</strong></td>
+                    <td>Marketing Lead</td>
+                    <td>outreach-batch-3@leads.io</td>
+                    <td>Meet (Operator)</td>
+                    <td><span class="badge badge--danger" style="color: #ef4444;">Rejected</span></td>
+                    <td>Yesterday</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        `;
+      }
+    }
   }
 
   function updateConnectionBadge() {
