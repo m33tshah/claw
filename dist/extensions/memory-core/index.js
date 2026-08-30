@@ -8,6 +8,7 @@ import { n as resolveCronStyleNow } from "../../current-time-B0TYU-XW.js";
 import { t as resolveMemorySearchConfig } from "../../memory-search-08jhHZZR.js";
 import { t as definePluginEntry } from "../../plugin-entry-CM_XK0Yw.js";
 import { t as resolveMemoryBackendConfig } from "../../backend-config-CilZioXb.js";
+import { t as resolveMemoryCoreNowMs } from "../../time-DhPCijtC.js";
 import "../../memory-core-host-runtime-core-BlnQd31n.js";
 import "../../memory-core-host-runtime-files-BNAeFw_e.js";
 import { u as configureMemoryCoreDreamingState } from "../../dreaming-state-DLMGVRgZ.js";

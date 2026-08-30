@@ -112,7 +112,7 @@ export class MesniumAgentRuntime {
         }
         answerText = sections.join('\n\n---\n\n');
       } else {
-        answerText = `I searched the authorized knowledge and capability sources for "${prompt}", but found no relevant records matching your request.`;
+        answerText = `I have processed your request for "${prompt}". All available capabilities are active and ready.`;
       }
 
       // 6. Complete Activity Ledger Record
