@@ -268,6 +268,12 @@
       sessionKey: 'main',
       loaded: false
     },
+    voice: {
+      listening: false,
+      speaking: false,
+      recognition: null,
+      status: 'idle'
+    },
     work: {
       tab: 'all',          // 'all'|'running'|'scheduled'|'automated'|'completed'|'needs_approval'
     },
@@ -332,6 +338,7 @@
       send:           `<line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>`,
       paperclip:      `<path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>`,
       mic:            `<path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/>`,
+      volume:         `<polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/>`,
       x:              `<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>`,
       check:          `<polyline points="20 6 9 11 4 16"/>`,
       'chevron-right':`<polyline points="9 18 15 12 9 6"/>`,
@@ -648,6 +655,9 @@
               <button class="composer-btn" id="btn-composer-attach" title="Attach file (PDF, DOCX, XLSX, CSV, Images)" aria-label="Attach file">
                 ${icon('paperclip', 20)}
               </button>
+              <button class="composer-btn btn-mic ${state.voice?.listening ? 'btn-mic--active' : ''}" id="btn-composer-mic" title="Voice Input / Dictation" aria-label="Voice input">
+                ${icon('mic', 20)}
+              </button>
               <input type="file" id="composer-file-input"
                 accept=".pdf,.docx,.doc,.txt,.md,.json,.yaml,.yml,.xlsx,.xls,.csv,.tsv,.pptx,.ppt,.png,.jpg,.jpeg,.webp,.gif,.mp3,.wav,.m4a"
                 multiple
@@ -695,9 +705,13 @@
         </div>`;
     }
 
+    const speakBtnHtml = !isUser && !msg._error && msg.text
+      ? `<button class="msg-action-speak" data-speak-msg="${msg.id}" title="Read aloud" aria-label="Read aloud">${icon('volume', 14)}</button>`
+      : '';
+
     const contentHtml = isUser
       ? `<div class="msg-bubble">${h(msg.text || '')}${attachmentsHtml}</div>`
-      : `<div class="msg-bubble ${msg._error ? 'msg-bubble--error' : ''}">${formatAssistantMessage(msg.text || '')}${sourcesHtml}</div>`;
+      : `<div class="msg-bubble ${msg._error ? 'msg-bubble--error' : ''}">${formatAssistantMessage(msg.text || '')}${sourcesHtml}${speakBtnHtml}</div>`;
 
     return `
       <div class="chat-msg chat-msg--${isUser ? 'user' : 'assistant'}" id="${msg.id || ''}">
@@ -1042,12 +1056,111 @@
       });
   }
 
+  // ─── VOICE INPUT & SPEECH SYNTHESIS ───────────────────────────────────────
+  function toggleVoiceInput() {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      alert("Microphone voice input is not supported in this browser. You can continue using text chat.");
+      return;
+    }
+
+    if (state.voice.listening) {
+      if (state.voice.recognition) {
+        state.voice.recognition.stop();
+      }
+      state.voice.listening = false;
+      state.voice.status = 'idle';
+      updateVoiceUI();
+      return;
+    }
+
+    try {
+      const recognition = new SpeechRecognition();
+      recognition.continuous = false;
+      recognition.interimResults = true;
+      recognition.lang = navigator.language || 'en-US';
+
+      recognition.onstart = () => {
+        state.voice.listening = true;
+        state.voice.status = 'listening';
+        state.voice.recognition = recognition;
+        updateVoiceUI();
+      };
+
+      recognition.onresult = (event) => {
+        let transcript = '';
+        for (let i = event.resultIndex; i < event.results.length; ++i) {
+          transcript += event.results[i][0].transcript;
+        }
+        const textarea = document.getElementById('chat-input');
+        if (textarea && transcript) {
+          textarea.value = transcript;
+          textarea.style.height = 'auto';
+          textarea.style.height = Math.min(textarea.scrollHeight, 160) + 'px';
+        }
+      };
+
+      recognition.onerror = (event) => {
+        console.warn('[Mesnium Voice] Recognition error:', event.error);
+        state.voice.listening = false;
+        state.voice.status = 'idle';
+        updateVoiceUI();
+        if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
+          alert("Microphone access isn't available. You can continue using text chat.");
+        }
+      };
+
+      recognition.onend = () => {
+        state.voice.listening = false;
+        state.voice.status = 'idle';
+        updateVoiceUI();
+      };
+
+      recognition.start();
+    } catch (err) {
+      console.warn('[Mesnium Voice] Init error:', err);
+      state.voice.listening = false;
+      state.voice.status = 'idle';
+      updateVoiceUI();
+      alert("Microphone access isn't available. You can continue using text chat.");
+    }
+  }
+
+  function updateVoiceUI() {
+    const micBtn = document.getElementById('btn-composer-mic');
+    if (micBtn) {
+      if (state.voice.listening) {
+        micBtn.classList.add('btn-mic--active');
+        micBtn.setAttribute('title', 'Listening… (Click to stop)');
+      } else {
+        micBtn.classList.remove('btn-mic--active');
+        micBtn.setAttribute('title', 'Voice Input / Dictation');
+      }
+    }
+  }
+
+  function speakAssistantMessage(text) {
+    if (typeof window === 'undefined' || !window.speechSynthesis) {
+      console.warn('[Mesnium Voice] Speech synthesis not supported in this browser.');
+      return;
+    }
+    window.speechSynthesis.cancel();
+    const cleanText = text.replace(/[#*`_\[\]()]/g, '').trim();
+    if (!cleanText) return;
+    const utterance = new SpeechSynthesisUtterance(cleanText);
+    utterance.rate = 1.0;
+    utterance.pitch = 1.0;
+    utterance.lang = navigator.language || 'en-US';
+    window.speechSynthesis.speak(utterance);
+  }
+
   // ─── CHAT HANDLERS & REAL GATEWAY EXECUTION ────────────────────────────────
   function handlersChat() {
     const textarea = document.getElementById('chat-input');
     const sendBtn  = document.getElementById('btn-chat-send');
     const fileInput = document.getElementById('composer-file-input');
     const attachBtn = document.getElementById('btn-composer-attach');
+    const micBtn   = document.getElementById('btn-composer-mic');
     const chatSurface = document.getElementById('surface-chat');
 
     // Load past conversation history on first chat visit
@@ -1072,6 +1185,11 @@
 
     if (sendBtn) sendBtn.onclick = () => sendChatMessage();
 
+    // Voice dictation toggle
+    if (micBtn) {
+      micBtn.onclick = () => toggleVoiceInput();
+    }
+
     // Multi-file attachment picker
     if (attachBtn && fileInput) {
       attachBtn.onclick = () => fileInput.click();
@@ -1082,6 +1200,18 @@
         fileInput.value = '';
       };
     }
+
+    // Text to Speech playback buttons on assistant messages
+    document.querySelectorAll('[data-speak-msg]').forEach(btn => {
+      btn.onclick = (e) => {
+        e.stopPropagation();
+        const msgId = btn.getAttribute('data-speak-msg');
+        const msg = state.chat.thread.find(m => m.id === msgId);
+        if (msg && msg.text) {
+          speakAssistantMessage(msg.text);
+        }
+      };
+    });
 
     // Individual file chip removal
     document.querySelectorAll('[data-remove-file]').forEach(btn => {

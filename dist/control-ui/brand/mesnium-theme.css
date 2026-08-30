@@ -2950,6 +2950,43 @@ input:focus, textarea:focus, select:focus {
   color: var(--text, #ceced6);
   border: 1px solid var(--border, #16161f);
   border-bottom-left-radius: 4px;
+  position: relative;
+}
+.msg-action-speak {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--muted, #747480);
+  cursor: pointer;
+  padding: 3px 6px;
+  border-radius: 4px;
+  margin-top: 6px;
+  opacity: 0.6;
+  transition: all 0.15s ease;
+}
+.msg-action-speak:hover {
+  opacity: 1;
+  color: var(--text, #ceced6);
+  background: var(--bg-card, #111116);
+  border-color: var(--border, #16161f);
+}
+.btn-mic {
+  color: var(--muted, #747480);
+  transition: all 0.15s ease;
+}
+.btn-mic:hover {
+  color: var(--text, #ceced6);
+}
+.btn-mic--active {
+  color: var(--accent, #b33d3f) !important;
+  background: var(--accent-subtle, rgba(179,61,63,0.12)) !important;
+  animation: mic-pulse 1.2s ease-in-out infinite;
+}
+@keyframes mic-pulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.1); }
 }
 .msg-thinking {
   display: flex;
