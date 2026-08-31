@@ -4902,6 +4902,209 @@ input:focus, textarea:focus, select:focus {
   flex: 1;
 }
 
+/* ─── MESNIUM AUTOMATION SELECTION PICKER ───────────────────────────────────── */
+.slash-picker-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px 8px 10px;
+  border-bottom: 1px solid var(--border-subtle, #1a1a24);
+  margin-bottom: 4px;
+}
+
+.slash-picker-title {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--accent, #b33d3f);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.slash-picker-hint {
+  font-size: 10px;
+  color: var(--muted, #666675);
+  font-family: var(--mono, monospace);
+}
+
+.slash-auto-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  background: transparent;
+  border: 1px solid transparent;
+  text-align: left;
+  width: 100%;
+  color: var(--text, #ceced6);
+  transition: all 0.15s ease;
+}
+
+.slash-auto-item:hover,
+.slash-auto-item--active {
+  background: var(--bg-hover, #181822);
+  border-color: rgba(179, 61, 63, 0.3);
+  color: #ffffff;
+}
+
+.slash-auto-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+}
+
+.slash-auto-indicator {
+  font-size: 10px;
+  color: var(--muted, #555566);
+  transition: color 0.15s ease, transform 0.15s ease;
+}
+
+.slash-auto-item--active .slash-auto-indicator {
+  color: var(--accent, #b33d3f);
+  transform: translateX(2px);
+}
+
+.slash-auto-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.slash-auto-name {
+  font-weight: 600;
+  font-size: 13px;
+  color: #e4e4e8;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.slash-auto-item--active .slash-auto-name {
+  color: #ffffff;
+}
+
+.slash-auto-meta {
+  font-size: 11px;
+  color: var(--muted, #808090);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.slash-auto-badge {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 12px;
+  white-space: nowrap;
+}
+
+.slash-picker-empty {
+  padding: 18px 12px;
+  text-align: center;
+  color: var(--muted, #747480);
+  font-size: 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.slash-picker-empty-btn {
+  background: var(--accent-subtle, rgba(179, 61, 63, 0.15));
+  border: 1px solid rgba(179, 61, 63, 0.3);
+  color: #ffffff;
+  padding: 4px 10px;
+  border-radius: 4px;
+  font-size: 11px;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.slash-picker-empty-btn:hover {
+  background: var(--accent, #b33d3f);
+}
+
+.slash-paused-dialog {
+  padding: 12px;
+  background: var(--bg-surface, #121218);
+  border-radius: 6px;
+  border: 1px solid rgba(234, 179, 8, 0.3);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.slash-paused-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  color: #eab308;
+  font-size: 13px;
+}
+
+.slash-paused-desc {
+  font-size: 12px;
+  color: var(--text-muted, #9494a0);
+}
+
+.slash-paused-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.slash-paused-btn {
+  padding: 6px 12px;
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: 4px;
+  cursor: pointer;
+  border: none;
+  transition: all 0.15s ease;
+}
+
+.slash-paused-btn--primary {
+  background: var(--accent, #b33d3f);
+  color: #ffffff;
+}
+
+.slash-paused-btn--primary:hover {
+  background: #c54446;
+}
+
+.slash-paused-btn--secondary {
+  background: rgba(255, 255, 255, 0.08);
+  color: #e4e4e8;
+  border: 1px solid var(--border, #2a2a36);
+}
+
+.slash-paused-btn--secondary:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.slash-paused-btn--cancel {
+  background: transparent;
+  color: var(--muted, #747480);
+}
+
+.slash-paused-btn--cancel:hover {
+  color: #ffffff;
+}
+
 /* ─── AUTOMATION STATUS BADGES & RUN HISTORY ────────────────────────────────── */
 .badge--running {
   background: rgba(59, 130, 246, 0.15) !important;

@@ -2117,15 +2117,55 @@
       loadChatHistory();
     }
 
+    // Helper: Format schedule expression into human-friendly string
+    function formatScheduleText(trigger) {
+      if (!trigger) return 'Manual Trigger';
+      if (typeof trigger === 'string') trigger = { type: 'schedule', scheduleExpr: trigger };
+      const expr = (trigger.scheduleExpr || trigger.type || '').trim();
+      if (!expr || expr === 'manual') return 'Manual Trigger';
+      if (expr === '0 9 * * 1-5') return 'Mon–Fri at 9:00 AM';
+      if (expr === '0 14 * * 1-5') return 'Mon–Fri at 2:00 PM';
+      if (expr === '0 9 * * *') return 'Every day at 9:00 AM';
+      if (expr === '0 8 * * 1') return 'Every Monday at 8:00 AM';
+      if (expr === '@daily' || expr === 'daily' || expr === 'every 1d') return 'Every day';
+      if (expr === '@hourly' || expr === 'hourly' || expr === 'every 1h') return 'Every hour';
+      if (expr.startsWith('every ') && expr.endsWith('m')) return `Every ${expr.replace('every ', '').replace('m', '')} mins`;
+      if (expr.startsWith('every ') && expr.endsWith('h')) return `Every ${expr.replace('every ', '').replace('h', '')} hours`;
+      return `Schedule: ${expr}`;
+    }
+
+    // Helper: Determine display status text and badge class
+    function getAutomationDisplayStatus(auto) {
+      if (auto.status === 'running' || auto.lastRun?.status === 'running') {
+        return { text: '◐ Running', badgeClass: 'badge--running', isRunning: true };
+      }
+      if (auto.enabled === false || auto.status === 'paused') {
+        return { text: 'Ⅱ Paused', badgeClass: 'badge--paused', isPaused: true };
+      }
+      if (auto.lastRun?.status === 'failed') {
+        return { text: '⚠ Failed', badgeClass: 'badge--failed', isFailed: true };
+      }
+      if (auto.lastRun?.status === 'success') {
+        return { text: '✓ Ready', badgeClass: 'badge--completed', isReady: true };
+      }
+      return { text: '○ Ready', badgeClass: 'badge--completed', isReady: true };
+    }
+
     // Slash command autocomplete popup management
     const slashMenu = document.getElementById('slash-commands-menu');
     let slashActiveIndex = 0;
+    let autoActiveIndex = 0;
+    let isAutoPickerMode = false;
     let matchingSlashCommands = [];
+    let matchingAutomations = [];
+    let cachedAutomations = null;
+    let lastAutoFetchTime = 0;
+    let selectedPausedAuto = null;
 
     const SLASH_COMMANDS = [
       { cmd: '/help', desc: 'View supported slash commands and workspace navigation', example: '/help' },
       { cmd: '/automations', desc: 'List all business automations, schedules & live statuses', example: '/automations' },
-      { cmd: '/run', desc: 'Execute an automation immediately in a dedicated new chat', example: '/run <automation-name>' },
+      { cmd: '/run', desc: 'Run an automation', example: '/run' },
       { cmd: '/status', desc: 'Check current status, schedule & next run of an automation', example: '/status <automation-name>' },
       { cmd: '/history', desc: 'View recent execution records and logs for an automation', example: '/history <automation-name>' },
       { cmd: '/pause', desc: 'Pause a scheduled automation', example: '/pause <automation-name>' },
@@ -2136,47 +2176,258 @@
       { cmd: '/projects', desc: 'Open Project Workspaces', example: '/projects' },
     ];
 
-    function updateSlashMenu() {
+    async function updateSlashMenu() {
       if (!textarea || !slashMenu) return;
-      const val = textarea.value;
-      if (val.startsWith('/') && !val.includes('\n')) {
-        const query = val.slice(1).toLowerCase().trim();
-        matchingSlashCommands = SLASH_COMMANDS.filter(c => 
-          !query || c.cmd.slice(1).toLowerCase().startsWith(query) || c.desc.toLowerCase().includes(query)
-        );
+      const rawVal = textarea.value;
+      if (!rawVal.startsWith('/') || rawVal.includes('\n')) {
+        slashMenu.style.display = 'none';
+        isAutoPickerMode = false;
+        selectedPausedAuto = null;
+        return;
+      }
 
-        if (matchingSlashCommands.length > 0) {
-          if (slashActiveIndex >= matchingSlashCommands.length) slashActiveIndex = 0;
-          slashMenu.innerHTML = matchingSlashCommands.map((c, idx) => `
-            <button class="slash-item ${idx === slashActiveIndex ? 'slash-item--active' : ''}" data-slash-cmd="${c.cmd}">
-              <span class="slash-item-cmd">${h(c.cmd)}</span>
-              <span class="slash-item-desc">${h(c.desc)}</span>
-            </button>
-          `).join('');
-          slashMenu.style.display = 'flex';
+      const val = rawVal.trimStart();
 
-          slashMenu.querySelectorAll('[data-slash-cmd]').forEach(item => {
-            item.onclick = (e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              const cmd = item.getAttribute('data-slash-cmd');
-              if (cmd === '/run' || cmd === '/status' || cmd === '/history' || cmd === '/pause' || cmd === '/resume') {
-                textarea.value = cmd + ' ';
-                textarea.focus();
-                updateSlashMenu();
-              } else {
-                textarea.value = cmd;
-                sendChatMessage();
-              }
-            };
-          });
+      // ─── AUTOMATION SELECTION PICKER MODE ─────────────────────────────────
+      if (val === '/run' || val.startsWith('/run ') || (val.startsWith('/run') && !val.startsWith('/running'))) {
+        isAutoPickerMode = true;
+        const query = val.replace(/^\/run\s*/i, '').toLowerCase().trim();
+
+        // Fetch automations if cache empty or older than 4s
+        if (!cachedAutomations || Date.now() - lastAutoFetchTime > 4000) {
+          if (!cachedAutomations) {
+            slashMenu.innerHTML = `
+              <div class="slash-picker-header">
+                <span class="slash-picker-title">⚡ Run an automation</span>
+                <span class="slash-picker-hint">Loading…</span>
+              </div>
+              <div class="slash-picker-empty">Loading automations…</div>
+            `;
+            slashMenu.style.display = 'flex';
+          }
+          try {
+            const res = await MesniumClient.request('mesnium.automations.list');
+            cachedAutomations = res.automations || [];
+            lastAutoFetchTime = Date.now();
+          } catch (err) {
+            console.warn('[Mesnium] Could not load automations for picker:', err);
+            if (!cachedAutomations) cachedAutomations = [];
+          }
+        }
+
+        // If in paused confirmation state
+        if (selectedPausedAuto) {
+          renderPausedConfirmDialog(selectedPausedAuto);
           return;
         }
+
+        const list = cachedAutomations || [];
+        if (list.length === 0) {
+          slashMenu.innerHTML = `
+            <div class="slash-picker-header">
+              <span class="slash-picker-title">⚡ Run an automation</span>
+              <span class="slash-picker-hint">ESC to cancel</span>
+            </div>
+            <div class="slash-picker-empty">
+              <span>You don't have any automations yet.</span>
+              <button class="slash-picker-empty-btn" id="btn-picker-create-work">+ Create in Work surface</button>
+            </div>
+          `;
+          slashMenu.style.display = 'flex';
+          const createBtn = document.getElementById('btn-picker-create-work');
+          if (createBtn) createBtn.onclick = () => {
+            slashMenu.style.display = 'none';
+            window.navigateTo('work');
+          };
+          return;
+        }
+
+        matchingAutomations = list.filter(a => {
+          if (!query) return true;
+          const normName = a.name.toLowerCase().replace(/[-_]/g, ' ');
+          const normQuery = query.replace(/[-_]/g, ' ');
+          return normName.includes(normQuery) || a.id.toLowerCase().includes(query) || (a.description && a.description.toLowerCase().includes(query));
+        });
+
+        if (matchingAutomations.length === 0) {
+          slashMenu.innerHTML = `
+            <div class="slash-picker-header">
+              <span class="slash-picker-title">⚡ Run an automation</span>
+              <span class="slash-picker-hint">ESC to cancel</span>
+            </div>
+            <div class="slash-picker-empty">
+              <span>No automations match "${h(query)}".</span>
+            </div>
+          `;
+          slashMenu.style.display = 'flex';
+          return;
+        }
+
+        if (autoActiveIndex >= matchingAutomations.length) autoActiveIndex = 0;
+
+        slashMenu.innerHTML = `
+          <div class="slash-picker-header">
+            <span class="slash-picker-title">⚡ Run an automation</span>
+            <span class="slash-picker-hint">↑↓ navigate · ↵ run · esc cancel</span>
+          </div>
+          ${matchingAutomations.map((a, idx) => {
+            const sched = formatScheduleText(a.trigger);
+            const st = getAutomationDisplayStatus(a);
+            const isActive = idx === autoActiveIndex;
+            return `
+              <button class="slash-auto-item ${isActive ? 'slash-auto-item--active' : ''}" data-auto-picker-id="${a.id}">
+                <div class="slash-auto-left">
+                  <span class="slash-auto-indicator">▶</span>
+                  <div class="slash-auto-main">
+                    <span class="slash-auto-name">${h(a.name)}</span>
+                    <span class="slash-auto-meta">${h(sched)} · ${h(st.text)}</span>
+                  </div>
+                </div>
+                <span class="slash-auto-badge ${st.badgeClass}">${h(st.text)}</span>
+              </button>
+            `;
+          }).join('')}
+        `;
+        slashMenu.style.display = 'flex';
+
+        // Mouse click handling on automation item
+        slashMenu.querySelectorAll('[data-auto-picker-id]').forEach(btn => {
+          btn.onclick = (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            const autoId = btn.getAttribute('data-auto-picker-id');
+            const auto = matchingAutomations.find(a => a.id === autoId) || list.find(a => a.id === autoId);
+            if (auto) handleAutomationSelectedFromPicker(auto);
+          };
+        });
+        return;
       }
+
+      // ─── GENERAL SLASH COMMANDS MENU ───────────────────────────────────────
+      isAutoPickerMode = false;
+      selectedPausedAuto = null;
+      const query = val.slice(1).toLowerCase().trim();
+      matchingSlashCommands = SLASH_COMMANDS.filter(c => 
+        !query || c.cmd.slice(1).toLowerCase().startsWith(query) || c.desc.toLowerCase().includes(query)
+      );
+
+      if (matchingSlashCommands.length > 0) {
+        if (slashActiveIndex >= matchingSlashCommands.length) slashActiveIndex = 0;
+        slashMenu.innerHTML = matchingSlashCommands.map((c, idx) => `
+          <button class="slash-item ${idx === slashActiveIndex ? 'slash-item--active' : ''}" data-slash-cmd="${c.cmd}">
+            <span class="slash-item-cmd">${h(c.cmd)}</span>
+            <span class="slash-item-desc">${h(c.desc)}</span>
+          </button>
+        `).join('');
+        slashMenu.style.display = 'flex';
+
+        slashMenu.querySelectorAll('[data-slash-cmd]').forEach(item => {
+          item.onclick = (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            const cmd = item.getAttribute('data-slash-cmd');
+            if (cmd === '/run') {
+              textarea.value = '/run ';
+              textarea.focus();
+              updateSlashMenu();
+            } else if (cmd === '/status' || cmd === '/history' || cmd === '/pause' || cmd === '/resume') {
+              textarea.value = cmd + ' ';
+              textarea.focus();
+              updateSlashMenu();
+            } else {
+              textarea.value = cmd;
+              sendChatMessage();
+            }
+          };
+        });
+        return;
+      }
+
       slashMenu.style.display = 'none';
     }
 
-    // Auto-resize textarea & slash command popup handling
+    function handleAutomationSelectedFromPicker(auto) {
+      if (!auto) return;
+
+      // Check if already running
+      if (auto.status === 'running' || auto.lastRun?.status === 'running') {
+        alert(`Automation "${auto.name}" is already running.`);
+        return;
+      }
+
+      // Check if paused
+      if (auto.enabled === false || auto.status === 'paused') {
+        selectedPausedAuto = auto;
+        renderPausedConfirmDialog(auto);
+        return;
+      }
+
+      // Execute directly in dedicated result chat
+      executeSelectedAutomation(auto);
+    }
+
+    function renderPausedConfirmDialog(auto) {
+      slashMenu.innerHTML = `
+        <div class="slash-paused-dialog">
+          <div class="slash-paused-header">
+            <span>Ⅱ Automation Paused</span>
+          </div>
+          <div class="slash-paused-desc">
+            <strong>${h(auto.name)}</strong> is currently paused. Choose how you want to run it:
+          </div>
+          <div class="slash-paused-actions">
+            <button class="slash-paused-btn slash-paused-btn--primary" id="btn-picker-resume-run">
+              ⚡ Resume & Run
+            </button>
+            <button class="slash-paused-btn slash-paused-btn--secondary" id="btn-picker-run-once">
+              ▶ Run Once (Keep Paused)
+            </button>
+            <button class="slash-paused-btn slash-paused-btn--cancel" id="btn-picker-cancel-paused">
+              Cancel
+            </button>
+          </div>
+        </div>
+      `;
+      slashMenu.style.display = 'flex';
+
+      const resumeRunBtn = document.getElementById('btn-picker-resume-run');
+      if (resumeRunBtn) resumeRunBtn.onclick = async (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        await MesniumClient.request('mesnium.automations.resume', { id: auto.id }).catch(() => {});
+        auto.enabled = true;
+        auto.status = 'active';
+        executeSelectedAutomation(auto);
+      };
+
+      const runOnceBtn = document.getElementById('btn-picker-run-once');
+      if (runOnceBtn) runOnceBtn.onclick = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        executeSelectedAutomation(auto);
+      };
+
+      const cancelBtn = document.getElementById('btn-picker-cancel-paused');
+      if (cancelBtn) cancelBtn.onclick = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        selectedPausedAuto = null;
+        updateSlashMenu();
+      };
+    }
+
+    async function executeSelectedAutomation(auto) {
+      slashMenu.style.display = 'none';
+      isAutoPickerMode = false;
+      selectedPausedAuto = null;
+      if (textarea) {
+        textarea.value = '';
+        textarea.style.height = 'auto';
+      }
+      await executeAutomationInNewChat(auto);
+    }
+
+    // Auto-resize textarea & slash command / automation picker keyboard handling
     if (textarea) {
       textarea.addEventListener('input', () => {
         textarea.style.height = 'auto';
@@ -2185,31 +2436,76 @@
       });
 
       textarea.addEventListener('keydown', (e) => {
-        if (slashMenu && slashMenu.style.display !== 'none' && matchingSlashCommands.length > 0) {
-          if (e.key === 'ArrowDown') {
-            e.preventDefault();
-            slashActiveIndex = (slashActiveIndex + 1) % matchingSlashCommands.length;
-            updateSlashMenu();
-            return;
-          }
-          if (e.key === 'ArrowUp') {
-            e.preventDefault();
-            slashActiveIndex = (slashActiveIndex - 1 + matchingSlashCommands.length) % matchingSlashCommands.length;
-            updateSlashMenu();
-            return;
-          }
-          if (e.key === 'Escape') {
-            e.preventDefault();
-            slashMenu.style.display = 'none';
-            return;
-          }
-          if (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey)) {
-            const selected = matchingSlashCommands[slashActiveIndex];
-            if (selected) {
-              const currentInput = textarea.value.trim();
-              if (currentInput !== selected.cmd) {
+        if (slashMenu && slashMenu.style.display !== 'none') {
+          // Automation Picker keyboard navigation
+          if (isAutoPickerMode) {
+            if (selectedPausedAuto) {
+              if (e.key === 'Escape') {
                 e.preventDefault();
-                if (selected.cmd === '/run' || selected.cmd === '/status' || selected.cmd === '/history' || selected.cmd === '/pause' || selected.cmd === '/resume') {
+                selectedPausedAuto = null;
+                updateSlashMenu();
+                return;
+              }
+              return;
+            }
+
+            if (matchingAutomations.length > 0) {
+              if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                autoActiveIndex = (autoActiveIndex + 1) % matchingAutomations.length;
+                updateSlashMenu();
+                return;
+              }
+              if (e.key === 'ArrowUp') {
+                e.preventDefault();
+                autoActiveIndex = (autoActiveIndex - 1 + matchingAutomations.length) % matchingAutomations.length;
+                updateSlashMenu();
+                return;
+              }
+              if (e.key === 'Escape') {
+                e.preventDefault();
+                slashMenu.style.display = 'none';
+                isAutoPickerMode = false;
+                return;
+              }
+              if (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey)) {
+                e.preventDefault();
+                const selected = matchingAutomations[autoActiveIndex];
+                if (selected) {
+                  handleAutomationSelectedFromPicker(selected);
+                  return;
+                }
+              }
+            }
+          } else if (matchingSlashCommands.length > 0) {
+            // Slash Commands Menu keyboard navigation
+            if (e.key === 'ArrowDown') {
+              e.preventDefault();
+              slashActiveIndex = (slashActiveIndex + 1) % matchingSlashCommands.length;
+              updateSlashMenu();
+              return;
+            }
+            if (e.key === 'ArrowUp') {
+              e.preventDefault();
+              slashActiveIndex = (slashActiveIndex - 1 + matchingSlashCommands.length) % matchingSlashCommands.length;
+              updateSlashMenu();
+              return;
+            }
+            if (e.key === 'Escape') {
+              e.preventDefault();
+              slashMenu.style.display = 'none';
+              return;
+            }
+            if (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey)) {
+              const selected = matchingSlashCommands[slashActiveIndex];
+              if (selected) {
+                e.preventDefault();
+                if (selected.cmd === '/run') {
+                  textarea.value = '/run ';
+                  textarea.focus();
+                  updateSlashMenu();
+                  return;
+                } else if (selected.cmd === '/status' || selected.cmd === '/history' || selected.cmd === '/pause' || selected.cmd === '/resume') {
                   textarea.value = selected.cmd + ' ';
                   textarea.focus();
                   updateSlashMenu();
@@ -2908,22 +3204,34 @@
       }
 
       if (cmd === '/run') {
+        const res = await MesniumClient.request('mesnium.automations.list');
+        const list = res.automations || [];
+
         if (!args) {
-          const res = await MesniumClient.request('mesnium.automations.list');
-          const names = (res.automations || []).map(a => `\`${a.name}\``).join(', ');
-          astMsg._thinking = false;
-          astMsg.text = `Please specify an automation to run.\n\n**Usage:** \`/run <automation-name>\`\n\n**Available automations:** ${names || 'None'}`;
+          if (list.length === 0) {
+            astMsg._thinking = false;
+            astMsg.text = `You don't have any automations yet. You can create one from the **Work** surface.`;
+            renderChatStream();
+            return;
+          }
+          // If called without args in chat, trigger the picker in composer
+          state.chat.thread.pop();
+          state.chat.thread.pop();
           renderChatStream();
+          const chatInput = document.getElementById('chat-input');
+          if (chatInput) {
+            chatInput.value = '/run ';
+            chatInput.focus();
+            if (typeof updateSlashMenu === 'function') updateSlashMenu();
+          }
           return;
         }
 
-        const res = await MesniumClient.request('mesnium.automations.list');
-        const list = res.automations || [];
         const auto = findAutomationInList(list, args);
 
         if (!auto) {
           astMsg._thinking = false;
-          astMsg.text = `I couldn't find an automation matching \`${args}\`.\n\nUse \`/automations\` to view all registered automations.`;
+          astMsg.text = `I couldn't find an automation matching \`${args}\`.\n\nUse \`/run\` to browse and select from available automations, or \`/automations\` to view all registered automations.`;
           renderChatStream();
           return;
         }
