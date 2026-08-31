@@ -12,6 +12,7 @@ export class MesniumIntegrationRegistry {
   constructor() {
     this.accounts = new Map(); // key: provider:accountId -> IntegrationAccount
     this.disconnectedProviders = new Set();
+    this.syncWithRuntime();
   }
 
   syncWithRuntime() {

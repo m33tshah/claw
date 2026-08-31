@@ -19,6 +19,10 @@ export class SkillVetter {
     this.extensionsDir = options.extensionsDir || path.resolve(process.cwd(), 'extensions');
   }
 
+  listInstalledSkills() {
+    return this.listSkills();
+  }
+
   /**
    * List all discovered skills with their security assessment summary.
    */

@@ -971,11 +971,11 @@
                       <span class="file-chip-name" title="${h(f.name)}">${h(f.name)}</span>
                       <span class="file-chip-size">${formatFileSize(f.size)}</span>
                     </div>
-                    <button class="file-chip-remove" data-remove-file="${idx}" aria-label="Remove ${h(f.name)}">${icon('x', 14)}</button>
                   </div>
                 `).join('')}
               </div>
             ` : ''}
+            <div class="slash-commands-menu" id="slash-commands-menu" style="display:none;" role="listbox" aria-label="Slash commands"></div>
             <div class="chat-composer" id="chat-composer">
               <button class="composer-btn" id="btn-composer-attach" title="Attach file (PDF, DOCX, XLSX, CSV, Images)" aria-label="Attach file">
                 ${icon('paperclip', 20)}
@@ -1567,12 +1567,33 @@
       <div class="surface surface-connections" id="surface-connections">
         <div class="surface-header">
           <div>
-            <h1 class="surface-title">Connections</h1>
-            <p class="surface-sub">Business tools, communication channels, and data sources.</p>
+            <h1 class="surface-title">Connections & Integration Hub</h1>
+            <p class="surface-sub">Connected workspace systems, external SaaS APIs, and Model Context Protocol (MCP) servers.</p>
+          </div>
+          <div class="header-action-group">
+            <button class="btn btn-secondary" id="btn-dependency-report">
+              📊 Dependency & API Guide
+            </button>
+            <button class="btn btn-primary" id="btn-add-mcp-server">
+              + Add MCP Server
+            </button>
           </div>
         </div>
+
+        <div class="files-controls-row" style="margin-bottom: 20px;">
+          <div class="files-filter-pills" id="conn-category-pills" role="tablist">
+            <button class="filter-pill filter-pill--active" data-conn-cat="all">All Capabilities</button>
+            <button class="filter-pill" data-conn-cat="communication">Communication</button>
+            <button class="filter-pill" data-conn-cat="productivity">Productivity</button>
+            <button class="filter-pill" data-conn-cat="automation">Automation</button>
+            <button class="filter-pill" data-conn-cat="research">Research & Web</button>
+            <button class="filter-pill" data-conn-cat="ai_media">AI & Media</button>
+            <button class="filter-pill" data-conn-cat="developer">Developer & MCP</button>
+          </div>
+        </div>
+
         <div class="connections-grid" id="connections-grid">
-          <div class="conn-loading">Checking connection statuses…</div>
+          <div class="conn-loading">Loading capabilities and integration statuses…</div>
         </div>
       </div>`;
   }
@@ -1827,6 +1848,7 @@
     window.navigateTo('chat');
     loadChatHistory();
   }
+  window.switchConversation = switchConversation;
 
   function renameConversation(convId, newTitle) {
     const conv = state.conversations.find(c => c.id === convId);
@@ -2095,14 +2117,113 @@
       loadChatHistory();
     }
 
-    // Auto-resize textarea
+    // Slash command autocomplete popup management
+    const slashMenu = document.getElementById('slash-commands-menu');
+    let slashActiveIndex = 0;
+    let matchingSlashCommands = [];
+
+    const SLASH_COMMANDS = [
+      { cmd: '/help', desc: 'View supported slash commands and workspace navigation', example: '/help' },
+      { cmd: '/automations', desc: 'List all business automations, schedules & live statuses', example: '/automations' },
+      { cmd: '/run', desc: 'Execute an automation immediately in a dedicated new chat', example: '/run <automation-name>' },
+      { cmd: '/status', desc: 'Check current status, schedule & next run of an automation', example: '/status <automation-name>' },
+      { cmd: '/history', desc: 'View recent execution records and logs for an automation', example: '/history <automation-name>' },
+      { cmd: '/pause', desc: 'Pause a scheduled automation', example: '/pause <automation-name>' },
+      { cmd: '/resume', desc: 'Resume a paused automation', example: '/resume <automation-name>' },
+      { cmd: '/briefing', desc: 'Generate today\'s Daily Executive Briefing', example: '/briefing' },
+      { cmd: '/connections', desc: 'Open Connections & Integration Hub', example: '/connections' },
+      { cmd: '/files', desc: 'Open Authorized Business Files', example: '/files' },
+      { cmd: '/projects', desc: 'Open Project Workspaces', example: '/projects' },
+    ];
+
+    function updateSlashMenu() {
+      if (!textarea || !slashMenu) return;
+      const val = textarea.value;
+      if (val.startsWith('/') && !val.includes('\n')) {
+        const query = val.slice(1).toLowerCase().trim();
+        matchingSlashCommands = SLASH_COMMANDS.filter(c => 
+          !query || c.cmd.slice(1).toLowerCase().startsWith(query) || c.desc.toLowerCase().includes(query)
+        );
+
+        if (matchingSlashCommands.length > 0) {
+          if (slashActiveIndex >= matchingSlashCommands.length) slashActiveIndex = 0;
+          slashMenu.innerHTML = matchingSlashCommands.map((c, idx) => `
+            <button class="slash-item ${idx === slashActiveIndex ? 'slash-item--active' : ''}" data-slash-cmd="${c.cmd}">
+              <span class="slash-item-cmd">${h(c.cmd)}</span>
+              <span class="slash-item-desc">${h(c.desc)}</span>
+            </button>
+          `).join('');
+          slashMenu.style.display = 'flex';
+
+          slashMenu.querySelectorAll('[data-slash-cmd]').forEach(item => {
+            item.onclick = (e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              const cmd = item.getAttribute('data-slash-cmd');
+              if (cmd === '/run' || cmd === '/status' || cmd === '/history' || cmd === '/pause' || cmd === '/resume') {
+                textarea.value = cmd + ' ';
+                textarea.focus();
+                updateSlashMenu();
+              } else {
+                textarea.value = cmd;
+                sendChatMessage();
+              }
+            };
+          });
+          return;
+        }
+      }
+      slashMenu.style.display = 'none';
+    }
+
+    // Auto-resize textarea & slash command popup handling
     if (textarea) {
       textarea.addEventListener('input', () => {
         textarea.style.height = 'auto';
         textarea.style.height = Math.min(textarea.scrollHeight, 160) + 'px';
+        updateSlashMenu();
       });
 
       textarea.addEventListener('keydown', (e) => {
+        if (slashMenu && slashMenu.style.display !== 'none' && matchingSlashCommands.length > 0) {
+          if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            slashActiveIndex = (slashActiveIndex + 1) % matchingSlashCommands.length;
+            updateSlashMenu();
+            return;
+          }
+          if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            slashActiveIndex = (slashActiveIndex - 1 + matchingSlashCommands.length) % matchingSlashCommands.length;
+            updateSlashMenu();
+            return;
+          }
+          if (e.key === 'Escape') {
+            e.preventDefault();
+            slashMenu.style.display = 'none';
+            return;
+          }
+          if (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey)) {
+            const selected = matchingSlashCommands[slashActiveIndex];
+            if (selected) {
+              const currentInput = textarea.value.trim();
+              if (currentInput !== selected.cmd) {
+                e.preventDefault();
+                if (selected.cmd === '/run' || selected.cmd === '/status' || selected.cmd === '/history' || selected.cmd === '/pause' || selected.cmd === '/resume') {
+                  textarea.value = selected.cmd + ' ';
+                  textarea.focus();
+                  updateSlashMenu();
+                  return;
+                } else {
+                  textarea.value = selected.cmd;
+                  sendChatMessage();
+                  return;
+                }
+              }
+            }
+          }
+        }
+
         if (e.key === 'Enter' && !e.shiftKey) {
           e.preventDefault();
           sendChatMessage();
@@ -2330,6 +2451,31 @@
     if (!text && pendingFiles.length === 0) return;
     if (state.chat.isSending) return;
 
+    // Check if user is invoking a slash command
+    if (text.startsWith('/') && pendingFiles.length === 0) {
+      await handleSlashCommand(text);
+      return;
+    }
+
+    // Check if user explicitly asked to run a known automation in natural language
+    const lowerText = text.toLowerCase().trim();
+    if (pendingFiles.length === 0 && (lowerText.startsWith('run ') || lowerText.startsWith('execute ') || lowerText.includes('run my ') || lowerText.includes('run the '))) {
+      const queryName = lowerText.replace(/^(run|execute)\s+(my\s+|the\s+)?/i, '').trim();
+      const autoRes = await MesniumClient.request('mesnium.automations.list').catch(() => ({ automations: [] }));
+      const autoList = autoRes.automations || [];
+      const match = findAutomationInList(autoList, queryName);
+      if (match) {
+        if (textarea) {
+          textarea.value = '';
+          textarea.style.height = 'auto';
+        }
+        const slashMenu = document.getElementById('slash-commands-menu');
+        if (slashMenu) slashMenu.style.display = 'none';
+        await executeAutomationInNewChat(match);
+        return;
+      }
+    }
+
     state.chat.isSending = true;
 
     const userText = text;
@@ -2521,6 +2667,392 @@
       }
       cleanup();
     }
+  }
+
+  // ─── SLASH COMMAND DISPATCHER & DETERMINISTIC CONTROLS ─────────────────────
+  async function handleSlashCommand(commandText) {
+    const textarea = document.getElementById('chat-input');
+    const slashMenu = document.getElementById('slash-commands-menu');
+    if (slashMenu) slashMenu.style.display = 'none';
+    if (textarea) {
+      textarea.value = '';
+      textarea.style.height = 'auto';
+    }
+
+    const trimmed = commandText.trim();
+    const parts = trimmed.split(/\s+/);
+    const cmd = parts[0].toLowerCase();
+    const args = parts.slice(1).join(' ').trim();
+
+    // 1. Instant Navigation Shortcuts
+    if (cmd === '/connections') {
+      window.navigateTo('connections');
+      return;
+    }
+    if (cmd === '/files') {
+      window.navigateTo('files');
+      return;
+    }
+    if (cmd === '/projects') {
+      window.navigateTo('projects');
+      return;
+    }
+
+    // Push user message to current thread
+    const userMsgId = 'msg_user_' + Date.now();
+    state.chat.thread.push({
+      id: userMsgId,
+      role: 'user',
+      text: trimmed,
+      ts: Date.now()
+    });
+
+    const assistantMsgId = 'msg_ast_' + Date.now();
+    state.chat.thread.push({
+      id: assistantMsgId,
+      role: 'assistant',
+      text: '',
+      _thinking: true,
+      ts: Date.now()
+    });
+    renderChatStream();
+
+    const astMsg = state.chat.thread.find(m => m.id === assistantMsgId);
+
+    try {
+      if (cmd === '/help') {
+        astMsg._thinking = false;
+        astMsg.text = `### ✦ Mesnium Slash Commands\n\n` +
+          `| Command | Description |\n` +
+          `| :--- | :--- |\n` +
+          `| \`/automations\` | List all business automations, schedules & live statuses |\n` +
+          `| \`/run <name>\` | Execute an automation immediately in a dedicated new chat |\n` +
+          `| \`/status <name>\` | Check current status, schedule & next run of an automation |\n` +
+          `| \`/history <name>\` | View recent execution records and logs for an automation |\n` +
+          `| \`/pause <name>\` | Pause a scheduled automation |\n` +
+          `| \`/resume <name>\` | Resume a paused automation |\n` +
+          `| \`/briefing\` | Generate or view today's Daily Executive Briefing |\n` +
+          `| \`/connections\` | Open Connections & Integration Hub |\n` +
+          `| \`/files\` | Open Authorized Business Files |\n` +
+          `| \`/projects\` | Open Project Workspaces |\n` +
+          `| \`/help\` | View this guide |`;
+        renderChatStream();
+        return;
+      }
+
+      if (cmd === '/automations') {
+        const res = await MesniumClient.request('mesnium.automations.list');
+        const list = res.automations || [];
+        astMsg._thinking = false;
+        if (list.length === 0) {
+          astMsg.text = `No automations registered. You can create one from the **Work** surface.`;
+        } else {
+          let md = `### ⚡ Business Automations (${list.length})\n\n` +
+            `| Automation | Trigger / Schedule | Status | Next Run | Last Run |\n` +
+            `| :--- | :--- | :--- | :--- | :--- |\n`;
+          for (const a of list) {
+            const isEnabled = a.enabled !== false && a.status !== 'paused';
+            const statusBadge = isEnabled ? '`✓ Active`' : '`Ⅱ Paused`';
+            const nextRun = a.nextRun ? new Date(a.nextRun).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }) : 'Manual Trigger';
+            const lastRun = a.lastRun?.timestamp ? `${a.lastRun.status.toUpperCase()} (${a.lastRun.durationMs}ms)` : 'Never run';
+            const trig = a.trigger?.scheduleExpr || a.trigger?.type || 'manual';
+            md += `| **${h(a.name)}** | \`${trig}\` | ${statusBadge} | ${nextRun} | ${lastRun} |\n`;
+          }
+          md += `\n*Tip: Use \`/run <name>\` to trigger any automation in a new chat.*`;
+          astMsg.text = md;
+        }
+        renderChatStream();
+        return;
+      }
+
+      if (cmd === '/status') {
+        if (!args) {
+          const res = await MesniumClient.request('mesnium.automations.list');
+          const names = (res.automations || []).map(a => `\`${a.name}\``).join(', ');
+          astMsg._thinking = false;
+          astMsg.text = `Please specify an automation name.\n\n**Usage:** \`/status <automation-name>\`\n\n**Available automations:** ${names || 'None'}`;
+          renderChatStream();
+          return;
+        }
+
+        const res = await MesniumClient.request('mesnium.automations.list');
+        const list = res.automations || [];
+        const auto = findAutomationInList(list, args);
+
+        astMsg._thinking = false;
+        if (!auto) {
+          astMsg.text = `I couldn't find an automation matching \`${args}\`.\n\nUse \`/automations\` to view all registered automations.`;
+        } else {
+          const isEnabled = auto.enabled !== false && auto.status !== 'paused';
+          const nextRun = auto.nextRun ? new Date(auto.nextRun).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : 'Manual Trigger';
+          const lastRunTime = auto.lastRun?.timestamp ? new Date(auto.lastRun.timestamp).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : 'Never';
+          const lastRunStatus = auto.lastRun?.status ? auto.lastRun.status.toUpperCase() : 'NEVER RUN';
+          const lastRunDur = auto.lastRun?.durationMs ? ` (${auto.lastRun.durationMs}ms)` : '';
+          const trig = auto.trigger?.scheduleExpr || auto.trigger?.type || 'manual';
+
+          astMsg.text = `### ⚙️ Automation Status: ${auto.name}\n\n` +
+            `- **Status:** ${isEnabled ? '`✓ Active (Scheduled)`' : '`Ⅱ Paused`'}\n` +
+            `- **Trigger:** \`${trig}\`\n` +
+            `- **Next Run:** ${nextRun}\n` +
+            `- **Last Run:** ${lastRunStatus}${lastRunDur} on ${lastRunTime}\n` +
+            `- **Description:** ${auto.description || 'No description'}\n\n` +
+            `*Use \`/run ${auto.name}\` to execute now, or \`/history ${auto.name}\` to view past runs.*`;
+        }
+        renderChatStream();
+        return;
+      }
+
+      if (cmd === '/history') {
+        if (!args) {
+          const res = await MesniumClient.request('mesnium.automations.list');
+          const names = (res.automations || []).map(a => `\`${a.name}\``).join(', ');
+          astMsg._thinking = false;
+          astMsg.text = `Please specify an automation name.\n\n**Usage:** \`/history <automation-name>\`\n\n**Available automations:** ${names || 'None'}`;
+          renderChatStream();
+          return;
+        }
+
+        const res = await MesniumClient.request('mesnium.automations.list');
+        const list = res.automations || [];
+        const auto = findAutomationInList(list, args);
+
+        if (!auto) {
+          astMsg._thinking = false;
+          astMsg.text = `I couldn't find an automation matching \`${args}\`.\n\nUse \`/automations\` to view all registered automations.`;
+          renderChatStream();
+          return;
+        }
+
+        const runRes = await MesniumClient.request('mesnium.automations.runs.list', { automationId: auto.id, limit: 10 });
+        const runs = runRes.runs || auto.history || [];
+
+        astMsg._thinking = false;
+        if (runs.length === 0) {
+          astMsg.text = `### 📜 Execution History: ${auto.name}\n\nNo execution runs recorded yet. Use \`/run ${auto.name}\` to trigger it.`;
+        } else {
+          let md = `### 📜 Execution History: ${auto.name}\n\n` +
+            `| Executed At | Trigger | Duration | Status | Summary |\n` +
+            `| :--- | :--- | :--- | :--- | :--- |\n`;
+          for (const r of runs) {
+            const timeStr = new Date(r.startedAt || r.executedAt || Date.now()).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' });
+            const statusIcon = r.status === 'success' ? '`✓ Success`' : '`⚠ Failed`';
+            const dur = `${r.durationMs || 0}ms`;
+            const trig = r.trigger || r.triggerSource || 'manual';
+            let summary = r.error ? `Error: ${r.error}` : (r.output ? r.output.slice(0, 40) + '…' : 'Completed');
+            summary = summary.replace(/[\n\r]/g, ' ');
+            md += `| ${timeStr} | \`${trig}\` | ${dur} | ${statusIcon} | ${h(summary)} |\n`;
+          }
+          astMsg.text = md;
+        }
+        renderChatStream();
+        return;
+      }
+
+      if (cmd === '/pause') {
+        if (!args) {
+          astMsg._thinking = false;
+          astMsg.text = `Please specify an automation to pause.\n\n**Usage:** \`/pause <automation-name>\``;
+          renderChatStream();
+          return;
+        }
+        const res = await MesniumClient.request('mesnium.automations.list');
+        const list = res.automations || [];
+        const auto = findAutomationInList(list, args);
+        if (!auto) {
+          astMsg._thinking = false;
+          astMsg.text = `I couldn't find an automation matching \`${args}\`.`;
+          renderChatStream();
+          return;
+        }
+        await MesniumClient.request('mesnium.automations.pause', { id: auto.id });
+        astMsg._thinking = false;
+        astMsg.text = `Paused scheduled automation **${auto.name}**. It will not run automatically until resumed.`;
+        renderChatStream();
+        return;
+      }
+
+      if (cmd === '/resume') {
+        if (!args) {
+          astMsg._thinking = false;
+          astMsg.text = `Please specify an automation to resume.\n\n**Usage:** \`/resume <automation-name>\``;
+          renderChatStream();
+          return;
+        }
+        const res = await MesniumClient.request('mesnium.automations.list');
+        const list = res.automations || [];
+        const auto = findAutomationInList(list, args);
+        if (!auto) {
+          astMsg._thinking = false;
+          astMsg.text = `I couldn't find an automation matching \`${args}\`.`;
+          renderChatStream();
+          return;
+        }
+        const updated = await MesniumClient.request('mesnium.automations.resume', { id: auto.id });
+        const nextRun = updated.automation?.nextRun ? new Date(updated.automation.nextRun).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }) : 'Next scheduled interval';
+        astMsg._thinking = false;
+        astMsg.text = `Resumed scheduled automation **${auto.name}**.\n\nNext scheduled run: **${nextRun}**.`;
+        renderChatStream();
+        return;
+      }
+
+      if (cmd === '/briefing') {
+        const autoRes = await MesniumClient.request('mesnium.automations.list');
+        const auto = (autoRes.automations || []).find(a => a.id === 'auto_daily_briefing' || a.name.toLowerCase().includes('briefing'));
+        if (auto) {
+          // Remove placeholder from current chat and route to new dedicated chat
+          state.chat.thread.pop();
+          state.chat.thread.pop();
+          await executeAutomationInNewChat(auto);
+          return;
+        }
+      }
+
+      if (cmd === '/run') {
+        if (!args) {
+          const res = await MesniumClient.request('mesnium.automations.list');
+          const names = (res.automations || []).map(a => `\`${a.name}\``).join(', ');
+          astMsg._thinking = false;
+          astMsg.text = `Please specify an automation to run.\n\n**Usage:** \`/run <automation-name>\`\n\n**Available automations:** ${names || 'None'}`;
+          renderChatStream();
+          return;
+        }
+
+        const res = await MesniumClient.request('mesnium.automations.list');
+        const list = res.automations || [];
+        const auto = findAutomationInList(list, args);
+
+        if (!auto) {
+          astMsg._thinking = false;
+          astMsg.text = `I couldn't find an automation matching \`${args}\`.\n\nUse \`/automations\` to view all registered automations.`;
+          renderChatStream();
+          return;
+        }
+
+        // Clean up the placeholder from the current chat so it remains untouched
+        state.chat.thread.pop();
+        state.chat.thread.pop();
+        await executeAutomationInNewChat(auto);
+        return;
+      }
+
+      // Unknown slash command
+      astMsg._thinking = false;
+      astMsg.text = `Unknown command \`${cmd}\`. Type \`/help\` to see available slash commands.`;
+      renderChatStream();
+
+    } catch (err) {
+      astMsg._thinking = false;
+      astMsg._error = true;
+      astMsg.text = `Command failed: ${err.message}`;
+      renderChatStream();
+    }
+  }
+
+  // ─── RUN-TO-CHAT DEDICATED AUTOMATION WORKFLOW ──────────────────────────────
+  async function executeAutomationInNewChat(auto) {
+    const convId = 'conv_auto_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 6);
+    const sessionKey = 'agent:main:' + convId;
+
+    const newConv = {
+      id: convId,
+      sessionKey: sessionKey,
+      title: `Automation Result — ${auto.name}`,
+      projectId: state.activeProjectId || null,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      messageCount: 2,
+      lastMessage: 'Running automation…'
+    };
+
+    state.conversations.unshift(newConv);
+    state.activeConversationId = convId;
+    state.chat.sessionKey = sessionKey;
+    state.chat.pendingFiles = [];
+    state.chat.loaded = true;
+
+    const userMsgId = 'msg_user_' + Date.now();
+    const astMsgId = 'msg_ast_' + Date.now();
+
+    state.chat.thread = [
+      {
+        id: userMsgId,
+        role: 'user',
+        text: `Run automation: ${auto.name}`,
+        ts: Date.now()
+      },
+      {
+        id: astMsgId,
+        role: 'assistant',
+        text: '',
+        toolStatus: `Running ${auto.name}…`,
+        _thinking: true,
+        ts: Date.now()
+      }
+    ];
+
+    saveConversationsMetadata();
+    window.navigateTo('chat');
+
+    try {
+      const res = await MesniumClient.request('mesnium.automations.run', {
+        id: auto.id,
+        triggerSource: 'manual',
+        resultChatId: convId
+      });
+
+      const astMsg = state.chat.thread.find(m => m.id === astMsgId);
+      if (astMsg) {
+        astMsg._thinking = false;
+        astMsg.text = res.output || res.result || `### Automation Completed: ${auto.name}\n\nTask executed successfully.`;
+        newConv.lastMessage = (astMsg.text || 'Completed').slice(0, 45) + '…';
+        newConv.updatedAt = Date.now();
+        saveConversationsMetadata();
+        renderChatStream();
+      }
+
+      // Persist into Gateway session transcript so reload preserves the output
+      await MesniumClient.request('chat.send', {
+        sessionKey,
+        message: `[System Automation Output for ${auto.name}]\n${res.output || res.result || 'Completed'}`,
+        deliver: false,
+        suppressCommandInterpretation: true,
+        idempotencyKey: 'persist_' + Date.now()
+      }).catch(() => {});
+
+    } catch (err) {
+      const astMsg = state.chat.thread.find(m => m.id === astMsgId);
+      if (astMsg) {
+        astMsg._thinking = false;
+        astMsg._error = true;
+        astMsg.text = `### ⚠ Automation Execution Failed: ${auto.name}\n\n${err.message || 'Execution error'}`;
+        newConv.lastMessage = 'Execution failed';
+        newConv.updatedAt = Date.now();
+        saveConversationsMetadata();
+        renderChatStream();
+      }
+    }
+  }
+
+  function findAutomationInList(list, query) {
+    if (!query || !Array.isArray(list)) return null;
+    const clean = query.trim().toLowerCase().replace(/[-_]/g, ' ');
+
+    for (const a of list) {
+      if (a.id.toLowerCase() === query.trim().toLowerCase()) return a;
+      if (a.name.toLowerCase() === query.trim().toLowerCase()) return a;
+    }
+
+    const matches = [];
+    for (const a of list) {
+      const aNorm = a.name.toLowerCase().replace(/[-_]/g, ' ');
+      if (aNorm === clean) return a;
+      if (aNorm.includes(clean) || clean.includes(aNorm)) {
+        matches.push(a);
+      }
+    }
+
+    if (matches.length === 1) return matches[0];
+    return null;
   }
 
   // ─── PROJECTS HANDLERS ─────────────────────────────────────────────────────
@@ -3141,7 +3673,7 @@
     }
   }
 
-  // ─── WORK HANDLERS ─────────────────────────────────────────────────────────
+  // ─── WORK HANDLERS (V1.1 PERSISTENT AUTOMATIONS CONTROL PLANE) ──────────────
   async function handlersWork() {
     document.querySelectorAll('[data-work-tab]').forEach(tab => {
       tab.onclick = () => {
@@ -3169,7 +3701,7 @@
 
       if (state.work.tab === 'needs_approval') {
         if (approvals.length === 0) {
-          content.innerHTML = `<div class="empty-state empty-state--centered"><div class="empty-icon">✓</div><h3>No pending approvals</h3><p>All actions have been reviewed.</p></div>`;
+          content.innerHTML = `<div class="empty-state empty-state--centered"><div class="empty-icon">✓</div><h3>No pending approvals</h3><p>All consequential actions have been approved.</p></div>`;
         } else {
           content.innerHTML = `
             <div class="approvals-list">
@@ -3177,33 +3709,112 @@
                 <div class="approval-card" id="approval-${app.id}">
                   <div class="approval-info">
                     <span class="badge badge--warn">Requires Approval</span>
-                    <h4>${h(app.actionType || 'Action')}</h4>
-                    <p>${h(app.description || 'Action awaiting operator consent.')}</p>
+                    <h4>${h(app.title || app.actionType)}</h4>
+                    <p style="margin:6px 0 8px;font-size:13px;color:var(--text-secondary,#c0c0d0);">${h(app.description || 'Outbound action awaiting operator confirmation.')}</p>
+                    <div style="font-size:12px;color:var(--muted,#747480);">Target: <code>${h(app.target || 'N/A')}</code></div>
                   </div>
-                  <div class="approval-actions">
-                    <button class="btn btn-primary btn-sm" data-approve="${app.id}">Approve</button>
+                  <div class="approval-actions" style="display:flex;gap:8px;align-items:center;">
+                    <button class="btn btn-primary btn-sm" data-approve="${app.id}">Confirm & Execute</button>
                     <button class="btn btn-secondary btn-sm" data-reject="${app.id}">Reject</button>
                   </div>
                 </div>`).join('')}
             </div>`;
         }
       } else {
-        if (automations.length === 0 && approvals.length === 0) {
-          content.innerHTML = `<div class="empty-state empty-state--centered"><div class="empty-icon">⚡</div><h3>No work found</h3><p>Create an automation to start scheduling tasks.</p></div>`;
+        if (automations.length === 0) {
+          content.innerHTML = `<div class="empty-state empty-state--centered"><div class="empty-icon">⚡</div><h3>No automations found</h3><p>Create an automation to schedule recurring business workflows.</p></div>`;
         } else {
           content.innerHTML = `
             <div class="automations-grid">
-              ${automations.map(auto => `
-                <div class="auto-card">
-                  <div class="auto-header">
-                    <h4>${h(auto.name)}</h4>
-                    <span class="badge badge--${auto.status === 'active' ? 'ok' : 'neutral'}">${h(auto.status)}</span>
-                  </div>
-                  <p class="auto-desc">${h(auto.description || '')}</p>
-                  <div class="auto-footer">
-                    <button class="btn btn-secondary btn-sm" data-run-auto="${auto.id}">Run Now</button>
-                  </div>
-                </div>`).join('')}
+              ${automations.map(auto => {
+                const isEnabled = auto.enabled !== false && auto.status !== 'paused';
+                const nextRunStr = auto.nextRun ? new Date(auto.nextRun).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }) : 'Manual Trigger';
+                const lastRunStr = auto.lastRun?.timestamp ? `${auto.lastRun.status.toUpperCase()} (${auto.lastRun.durationMs}ms)` : 'Never run';
+
+                // Real status badge calculation
+                let badgeClass = 'badge--never';
+                let badgeLabel = '○ Never run';
+                if (!isEnabled) {
+                  badgeClass = 'badge--paused';
+                  badgeLabel = 'Ⅱ Paused';
+                } else if (auto.lastRun?.status === 'success') {
+                  badgeClass = 'badge--completed';
+                  badgeLabel = '✓ Completed';
+                } else if (auto.lastRun?.status === 'failed') {
+                  badgeClass = 'badge--failed';
+                  badgeLabel = '⚠ Failed';
+                } else if (auto.lastRun?.status === 'running') {
+                  badgeClass = 'badge--running';
+                  badgeLabel = '◐ Running';
+                }
+
+                const runs = Array.isArray(auto.history) ? auto.history : [];
+
+                return `
+                  <div class="auto-card" id="auto-card-${h(auto.id)}">
+                    <div class="auto-header">
+                      <div>
+                        <h4 style="margin:0 0 4px 0;font-size:15px;font-weight:600;">${h(auto.name)}</h4>
+                        <div style="font-size:12px;color:var(--muted,#747480);font-family:monospace;">Schedule: ${h(auto.trigger?.scheduleExpr || auto.trigger?.type || 'manual')}</div>
+                      </div>
+                      <span class="badge ${badgeClass}">${badgeLabel}</span>
+                    </div>
+
+                    <p class="auto-desc" style="margin:10px 0;font-size:13px;color:var(--text-secondary,#c0c0d0);line-height:1.4;">${h(auto.description || '')}</p>
+
+                    <div style="margin:10px 0;padding:8px 10px;background:var(--surface-sunken,#060609);border-radius:6px;font-size:12px;display:flex;justify-content:space-between;">
+                      <span>Next: <strong>${h(nextRunStr)}</strong></span>
+                      <span style="color:var(--muted,#747480);">Last: ${h(lastRunStr)}</span>
+                    </div>
+
+                    ${auto.lastRun?.result ? `
+                      <div style="margin:8px 0;font-size:12px;color:var(--muted,#747480);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
+                        <strong>Result:</strong> ${h(String(auto.lastRun.result).replace(/[\n\r]/g, ' ').slice(0, 70))}…
+                      </div>
+                    ` : ''}
+
+                    <div class="auto-footer" style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;padding-top:10px;border-top:1px solid var(--border-subtle,#111118);">
+                      <div style="display:flex;gap:6px;">
+                        <button class="btn btn-primary btn-sm" data-run-auto="${h(auto.id)}" title="Execute automation and open result in a new chat">⚡ Run Now</button>
+                        <button class="btn btn-secondary btn-sm" data-toggle-auto="${h(auto.id)}" data-enabled="${isEnabled}">${isEnabled ? 'Pause' : 'Resume'}</button>
+                        <button class="btn btn-secondary btn-sm" data-toggle-history="${h(auto.id)}" title="View execution records">History (${runs.length})</button>
+                      </div>
+                      <div style="display:flex;gap:6px;">
+                        <button class="btn btn-icon btn-sm" data-dup-auto="${h(auto.id)}" title="Duplicate">📋</button>
+                        <button class="btn btn-icon btn-sm" data-del-auto="${h(auto.id)}" title="Delete" style="color:var(--accent,#b33d3f);">🗑️</button>
+                      </div>
+                    </div>
+
+                    <div class="history-drawer" id="history-drawer-${h(auto.id)}" style="display:none;">
+                      ${runs.length === 0 ? `
+                        <p style="margin:0;font-size:12px;color:var(--muted,#747480);">No execution runs recorded yet.</p>
+                      ` : `
+                        <table class="history-table">
+                          <thead>
+                            <tr>
+                              <th>Time</th>
+                              <th>Trigger</th>
+                              <th>Duration</th>
+                              <th>Status</th>
+                              <th>Chat</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            ${runs.slice(0, 5).map(r => `
+                              <tr>
+                                <td>${new Date(r.startedAt || r.executedAt || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</td>
+                                <td><code>${h(r.trigger || r.triggerSource || 'manual')}</code></td>
+                                <td>${r.durationMs || 0}ms</td>
+                                <td><span class="badge ${r.status === 'success' ? 'badge--completed' : 'badge--failed'}">${r.status === 'success' ? '✓' : '⚠'}</span></td>
+                                <td>${r.resultChatId ? `<button class="btn btn-secondary btn-sm" style="padding:2px 6px;font-size:11px;" onclick="window.switchConversation('${r.resultChatId}')">View</button>` : '—'}</td>
+                              </tr>
+                            `).join('')}
+                          </tbody>
+                        </table>
+                      `}
+                    </div>
+                  </div>`;
+              }).join('')}
             </div>`;
         }
       }
@@ -3212,26 +3823,81 @@
       document.querySelectorAll('[data-approve]').forEach(btn => {
         btn.onclick = async () => {
           const id = btn.getAttribute('data-approve');
-          await MesniumClient.request('mesnium.approvals.approve', { id });
-          handlersWork();
+          btn.disabled = true;
+          btn.textContent = 'Executing…';
+          try {
+            await MesniumClient.request('mesnium.approvals.approve', { id });
+            await handlersWork();
+          } catch (err) {
+            alert('Approval execution failed: ' + err.message);
+            await handlersWork();
+          }
         };
       });
+
       document.querySelectorAll('[data-reject]').forEach(btn => {
         btn.onclick = async () => {
           const id = btn.getAttribute('data-reject');
           await MesniumClient.request('mesnium.approvals.reject', { id });
-          handlersWork();
+          await handlersWork();
         };
       });
+
+      // Run Now -> Automations Run-to-Chat
       document.querySelectorAll('[data-run-auto]').forEach(btn => {
         btn.onclick = async () => {
           const id = btn.getAttribute('data-run-auto');
-          btn.textContent = 'Running…';
-          btn.disabled = true;
-          await MesniumClient.request('mesnium.automations.run', { id });
-          handlersWork();
+          const auto = automations.find(a => a.id === id);
+          if (auto) {
+            btn.textContent = 'Launching…';
+            btn.disabled = true;
+            await executeAutomationInNewChat(auto);
+          }
         };
       });
+
+      // Toggle History Drawer
+      document.querySelectorAll('[data-toggle-history]').forEach(btn => {
+        btn.onclick = () => {
+          const id = btn.getAttribute('data-toggle-history');
+          const drawer = document.getElementById(`history-drawer-${id}`);
+          if (drawer) {
+            drawer.style.display = drawer.style.display === 'none' ? 'block' : 'none';
+          }
+        };
+      });
+
+      // Pause / Resume toggle
+      document.querySelectorAll('[data-toggle-auto]').forEach(btn => {
+        btn.onclick = async () => {
+          const id = btn.getAttribute('data-toggle-auto');
+          const isEnabled = btn.getAttribute('data-enabled') === 'true';
+          const method = isEnabled ? 'mesnium.automations.pause' : 'mesnium.automations.resume';
+          await MesniumClient.request(method, { id });
+          await handlersWork();
+        };
+      });
+
+      // Duplicate
+      document.querySelectorAll('[data-dup-auto]').forEach(btn => {
+        btn.onclick = async () => {
+          const id = btn.getAttribute('data-dup-auto');
+          await MesniumClient.request('mesnium.automations.duplicate', { id });
+          await handlersWork();
+        };
+      });
+
+      // Delete
+      document.querySelectorAll('[data-del-auto]').forEach(btn => {
+        btn.onclick = async () => {
+          const id = btn.getAttribute('data-del-auto');
+          if (confirm('Are you sure you want to delete this automation?')) {
+            await MesniumClient.request('mesnium.automations.delete', { id });
+            await handlersWork();
+          }
+        };
+      });
+
     } catch (err) {
       content.innerHTML = `<div class="error-state">Failed to load work: ${h(err.message)}</div>`;
     }
@@ -3242,28 +3908,42 @@
     if (!modalRoot) return;
     modalRoot.innerHTML = `
       <div class="modal-overlay" id="modal-auto-overlay">
-        <div class="modal-card">
+        <div class="modal-card" style="max-width:540px;width:90%;">
           <div class="modal-header">
             <h3>Create Business Automation</h3>
             <button class="modal-close" id="btn-close-auto-modal">×</button>
           </div>
           <div class="modal-body">
             <div class="form-field">
-              <label class="form-label">Automation Name *</label>
-              <input type="text" id="auto-name-input" class="form-input" placeholder="e.g. Daily Leads Digest" />
+              <label class="form-label" for="auto-name-input">Automation Name *</label>
+              <input type="text" id="auto-name-input" class="form-input" placeholder="e.g. Daily Executive Sync" />
             </div>
             <div class="form-field">
-              <label class="form-label">Schedule / Trigger</label>
-              <input type="text" id="auto-sched-input" class="form-input" value="Every weekday at 9:00 AM" />
+              <label class="form-label" for="auto-desc-input">Description</label>
+              <input type="text" id="auto-desc-input" class="form-input" placeholder="e.g. Synthesizes daily Gmail, Calendar, and outstanding approvals." />
             </div>
             <div class="form-field">
-              <label class="form-label">Task Prompt</label>
-              <textarea id="auto-prompt-input" class="form-textarea" rows="3" placeholder="Describe the task for Mesnium to execute..."></textarea>
+              <label class="form-label" for="auto-sched-input">Cron Schedule</label>
+              <select id="auto-sched-preset" class="form-input" style="margin-bottom:6px;">
+                <option value="0 9 * * 1-5">Every Weekday at 9:00 AM (0 9 * * 1-5)</option>
+                <option value="0 9 * * *">Every Day at 9:00 AM (0 9 * * *)</option>
+                <option value="@hourly">Every Hour (@hourly)</option>
+                <option value="custom">Custom Expression…</option>
+              </select>
+              <input type="text" id="auto-sched-input" class="form-input" value="0 9 * * 1-5" style="display:none;" />
+            </div>
+            <div class="form-field">
+              <label class="form-label" for="auto-action-type">Primary Action</label>
+              <select id="auto-action-type" class="form-input">
+                <option value="briefing.generate">Synthesize Executive Briefing</option>
+                <option value="leads.research_and_draft">Research Leads & Prepare Outreach Draft</option>
+                <option value="monitors.run">Run Proactive Research Monitors</option>
+              </select>
             </div>
           </div>
           <div class="modal-footer">
             <button class="btn btn-secondary" id="btn-cancel-auto-modal">Cancel</button>
-            <button class="btn btn-primary" id="btn-submit-auto-modal">Create</button>
+            <button class="btn btn-primary" id="btn-submit-auto-modal">Create Automation</button>
           </div>
         </div>
       </div>`;
@@ -3271,14 +3951,38 @@
     const close = () => { modalRoot.innerHTML = ''; };
     document.getElementById('btn-close-auto-modal').onclick = close;
     document.getElementById('btn-cancel-auto-modal').onclick = close;
+    document.getElementById('modal-auto-overlay').onclick = (e) => {
+      if (e.target.id === 'modal-auto-overlay') close();
+    };
+
+    const presetSelect = document.getElementById('auto-sched-preset');
+    const customSchedInput = document.getElementById('auto-sched-input');
+    presetSelect.onchange = () => {
+      if (presetSelect.value === 'custom') {
+        customSchedInput.style.display = 'block';
+        customSchedInput.value = '0 9 * * *';
+      } else {
+        customSchedInput.style.display = 'none';
+        customSchedInput.value = presetSelect.value;
+      }
+    };
+
     document.getElementById('btn-submit-auto-modal').onclick = async () => {
       const name = document.getElementById('auto-name-input')?.value.trim();
-      const prompt = document.getElementById('auto-prompt-input')?.value.trim();
-      if (!name) return alert('Name is required');
+      const description = document.getElementById('auto-desc-input')?.value.trim();
+      const scheduleExpr = customSchedInput.value.trim() || '0 9 * * *';
+      const actionType = document.getElementById('auto-action-type')?.value;
+
+      if (!name) return alert('Name is required.');
       try {
-        await MesniumClient.request('mesnium.automations.create', { name, prompt });
+        await MesniumClient.request('mesnium.automations.create', {
+          name,
+          description,
+          trigger: { type: 'schedule', scheduleExpr },
+          actionType
+        });
         close();
-        handlersWork();
+        await handlersWork();
       } catch (err) {
         alert('Failed to create automation: ' + err.message);
       }
@@ -3443,117 +4147,108 @@
     }
   }
 
-  // ─── CONNECTIONS HANDLERS ──────────────────────────────────────────────────
+  // ─── CONNECTIONS HANDLERS (V1.1 UNIVERSAL CAPABILITY HUB) ───────────────────
+  let activeConnCategory = 'all';
+
   async function handlersConnections() {
     const grid = document.getElementById('connections-grid');
     if (!grid) return;
+
+    // Filter pills
+    document.querySelectorAll('[data-conn-cat]').forEach(pill => {
+      pill.onclick = () => {
+        activeConnCategory = pill.getAttribute('data-conn-cat');
+        document.querySelectorAll('[data-conn-cat]').forEach(p => p.classList.remove('filter-pill--active'));
+        pill.classList.add('filter-pill--active');
+        renderConnectionsCards();
+      };
+    });
+
+    // Header buttons
+    const btnDepReport = document.getElementById('btn-dependency-report');
+    if (btnDepReport) {
+      btnDepReport.onclick = () => openDependencyReportModal();
+    }
+
+    const btnAddMcp = document.getElementById('btn-add-mcp-server');
+    if (btnAddMcp) {
+      btnAddMcp.onclick = () => openAddMcpServerModal();
+    }
+
+    await renderConnectionsCards();
+  }
+
+  async function renderConnectionsCards() {
+    const grid = document.getElementById('connections-grid');
+    if (!grid) return;
+
+    grid.innerHTML = '<div class="conn-loading"><span class="thinking-dot"></span><span class="thinking-dot"></span><span class="thinking-dot"></span><span>Checking live capability statuses…</span></div>';
+
     try {
-      const data = await MesniumClient.request('mesnium.connections.status');
-      const googleStatus = data.google?.status?.toLowerCase() || 'disconnected';
-      const waStatus     = data.whatsapp?.status || 'NOT_CONNECTED';
-      const googleEmail  = data.google?.email;
+      const data = await MesniumClient.request('mesnium.capabilities.list');
+      const allCaps = data.capabilities || [];
+      const filtered = activeConnCategory === 'all' ? allCaps : allCaps.filter(c => c.category === activeConnCategory);
 
-      grid.innerHTML = `
-        <div class="conn-card">
-          <div class="conn-card-header">
-            <div class="conn-brand">
-              <div class="conn-icon conn-icon--google">G</div>
-              <div>
-                <div class="conn-name">Google Workspace</div>
-                <div class="conn-detail">${googleEmail ? h(googleEmail) : 'Not connected'}</div>
+      if (filtered.length === 0) {
+        grid.innerHTML = `<div class="empty-state empty-state--centered"><div class="empty-icon">🔌</div><h3>No capabilities found</h3><p>No tools in category "${h(activeConnCategory)}".</p></div>`;
+        return;
+      }
+
+      grid.innerHTML = filtered.map(cap => {
+        const isConn = cap.status === 'CONNECTED' || cap.status === 'connected';
+        const isReqKey = cap.status === 'REQUIRES_API_KEY' || cap.status === 'REQUIRES_CONFIGURATION';
+        const badgeClass = isConn ? 'badge--ok' : isReqKey ? 'badge--warn' : 'badge--neutral';
+        const statusLabel = isConn ? 'Connected' : isReqKey ? 'Requires Key' : h(cap.status);
+
+        return `
+          <div class="conn-card" id="card-${h(cap.id)}">
+            <div class="conn-card-header">
+              <div class="conn-brand">
+                <div class="conn-icon conn-icon--${h(cap.providerId)}">${cap.name.charAt(0)}</div>
+                <div>
+                  <div class="conn-name">${h(cap.name)}</div>
+                  <div class="conn-detail">${h(cap.connectedAccount || '')}</div>
+                </div>
               </div>
+              <span class="badge ${badgeClass}">${statusLabel}</span>
             </div>
-            <span class="badge badge--${googleStatus === 'connected' ? 'ok' : 'warn'}">${h(googleStatus)}</span>
-          </div>
-          <div class="conn-services">
-            <span class="conn-service">Drive</span>
-            <span class="conn-service">Gmail</span>
-            <span class="conn-service">Calendar</span>
-          </div>
-          ${googleStatus !== 'connected' ?
-            `<button class="btn btn-primary btn-sm conn-action-btn" id="btn-connect-google">Connect Google</button>` :
-            `<button class="btn btn-secondary btn-sm conn-action-btn" id="btn-disconnect-google">Disconnect</button>`
-          }
-        </div>
 
-        <div class="conn-card">
-          <div class="conn-card-header">
-            <div class="conn-brand">
-              <div class="conn-icon conn-icon--whatsapp">W</div>
-              <div>
-                <div class="conn-name">WhatsApp Business</div>
-                <div class="conn-detail">${waStatus === 'CONNECTED' ? 'Connected' : 'Not connected'}</div>
-              </div>
+            <p class="conn-description" style="font-size:13px;color:var(--muted,#747480);margin:8px 0 12px;line-height:1.4;">
+              ${h(cap.description)}
+            </p>
+
+            <div class="conn-services" style="margin-bottom:14px;">
+              ${(cap.services || []).map(s => `<span class="conn-service">${h(s)}</span>`).join('')}
             </div>
-            <span class="badge badge--${waStatus === 'CONNECTED' ? 'ok' : 'warn'}">${waStatus === 'CONNECTED' ? 'Connected' : 'Not Connected'}</span>
-          </div>
-          <p class="conn-description">
-            Connect your WhatsApp Business number to receive and reply to inbound customer messages automatically.
-          </p>
-          <button class="btn btn-primary btn-sm" id="btn-connect-whatsapp" ${waStatus === 'CONNECTED' ? 'disabled' : ''}>
-            ${waStatus === 'CONNECTED' ? 'Connected' : 'Connect WhatsApp'}
-          </button>
-        </div>
 
-        <div class="conn-upcoming-section">
-          <p class="conn-upcoming-title">Coming soon</p>
-          <div class="conn-upcoming-grid">
-            <div class="conn-upcoming-item">HubSpot CRM</div>
-            <div class="conn-upcoming-item">Salesforce</div>
-            <div class="conn-upcoming-item">Slack</div>
-            <div class="conn-upcoming-item">Meta Ads</div>
+            <div class="conn-actions-row" style="display:flex;gap:8px;flex-wrap:wrap;">
+              ${cap.providerId === 'google' ? (
+                isConn ? `<button class="btn btn-secondary btn-sm" id="btn-disconnect-google">Disconnect</button>` :
+                         `<button class="btn btn-primary btn-sm" id="btn-connect-google">Connect Google</button>`
+              ) : cap.authType === 'api_key' ? (
+                `<button class="btn btn-secondary btn-sm" data-configure-key="${h(cap.providerId)}">Configure Key</button>`
+              ) : cap.providerId === 'mcp' ? (
+                `<button class="btn btn-secondary btn-sm" id="btn-manage-mcp">Manage Servers</button>`
+              ) : (
+                `<span class="badge badge--ok" style="font-size:11px;">Active & Ready</span>`
+              )}
+            </div>
           </div>
-        </div>`;
+        `;
+      }).join('');
 
+      // Wire up card actions
       const btnConnectGoogle = document.getElementById('btn-connect-google');
       if (btnConnectGoogle) {
         btnConnectGoogle.onclick = async () => {
           btnConnectGoogle.disabled = true;
-          btnConnectGoogle.innerText = 'Connecting Google…';
-          btnConnectGoogle.style.opacity = '0.7';
-
+          btnConnectGoogle.innerText = 'Connecting…';
           try {
-            const res = await MesniumClient.request('mesnium.connections.connect', { provider: 'google' });
-            if (res && res.status === 'CONNECTED') {
-              await handlersConnections();
-              return;
-            }
-
-            if (res && res.authUrl) {
-              const authWindow = window.open(res.authUrl, 'MesniumGoogleAuth', 'width=600,height=750,menubar=no,toolbar=no');
-              let attempts = 0;
-              const maxAttempts = 30; // 60s
-              const pollInterval = setInterval(async () => {
-                attempts++;
-                try {
-                  const check = await MesniumClient.request('mesnium.connections.status');
-                  if (check && check.google && check.google.status?.toLowerCase() === 'connected') {
-                    clearInterval(pollInterval);
-                    if (authWindow && !authWindow.closed) {
-                      try { authWindow.close(); } catch (_) {}
-                    }
-                    await handlersConnections();
-                    return;
-                  }
-                } catch (_) {}
-
-                if (attempts >= maxAttempts) {
-                  clearInterval(pollInterval);
-                  btnConnectGoogle.disabled = false;
-                  btnConnectGoogle.innerText = 'Connect Google';
-                  btnConnectGoogle.style.opacity = '';
-                }
-              }, 2000);
-            } else {
-              btnConnectGoogle.disabled = false;
-              btnConnectGoogle.innerText = 'Connect Google';
-              btnConnectGoogle.style.opacity = '';
-            }
+            await MesniumClient.request('mesnium.connections.connect', { provider: 'google' });
+            await renderConnectionsCards();
           } catch (err) {
-            btnConnectGoogle.disabled = false;
-            btnConnectGoogle.innerText = 'Connect Google';
-            btnConnectGoogle.style.opacity = '';
-            console.error('[Mesnium] Google connect error:', err);
+            alert('Google connection failed: ' + err.message);
+            await renderConnectionsCards();
           }
         };
       }
@@ -3563,21 +4258,232 @@
         btnDisconnectGoogle.onclick = async () => {
           if (confirm('Disconnect Google Workspace?')) {
             try {
-              btnDisconnectGoogle.disabled = true;
-              btnDisconnectGoogle.innerText = 'Disconnecting…';
-              btnDisconnectGoogle.style.opacity = '0.7';
               await MesniumClient.request('mesnium.connections.disconnect', { provider: 'google' });
-              await handlersConnections();
+              await renderConnectionsCards();
             } catch (err) {
-              console.error('[Mesnium] Google disconnect error:', err);
-              await handlersConnections();
+              console.error(err);
+              await renderConnectionsCards();
             }
           }
         };
       }
+
+      document.querySelectorAll('[data-configure-key]').forEach(btn => {
+        btn.onclick = () => {
+          const pId = btn.getAttribute('data-configure-key');
+          openConfigureKeyModal(pId);
+        };
+      });
+
+      const btnManageMcp = document.getElementById('btn-manage-mcp');
+      if (btnManageMcp) {
+        btnManageMcp.onclick = () => openAddMcpServerModal();
+      }
+
     } catch (err) {
-      grid.innerHTML = `<div class="error-state">Failed to load connections: ${h(err.message)}</div>`;
+      grid.innerHTML = `<div class="error-state">Failed to load capabilities: ${h(err.message)}</div>`;
     }
+  }
+
+  function openConfigureKeyModal(providerId) {
+    const modalRoot = document.getElementById('mesnium-modal-root');
+    if (!modalRoot) return;
+
+    modalRoot.innerHTML = `
+      <div class="modal-overlay" id="modal-key-overlay">
+        <div class="modal-card" style="max-width:500px;width:90%;">
+          <div class="modal-header">
+            <h3>Configure ${h(providerId.toUpperCase())} API Key</h3>
+            <button class="modal-close" id="btn-close-key-modal">×</button>
+          </div>
+          <div class="modal-body">
+            <div class="form-field">
+              <label class="form-label" for="provider-api-key">API Key or Secret *</label>
+              <input type="password" id="provider-api-key" class="form-input" placeholder="sk-..." />
+              <p class="form-hint" style="font-size:12px;color:var(--muted,#747480);margin-top:4px;">
+                Credentials are encrypted in ~/.openclaw/credentials.json and never logged or leaked.
+              </p>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button class="btn btn-secondary" id="btn-cancel-key-modal">Cancel</button>
+            <button class="btn btn-primary" id="btn-submit-key-modal">Save & Validate</button>
+          </div>
+        </div>
+      </div>`;
+
+    const close = () => { modalRoot.innerHTML = ''; };
+    document.getElementById('btn-close-key-modal').onclick = close;
+    document.getElementById('btn-cancel-key-modal').onclick = close;
+    document.getElementById('modal-key-overlay').onclick = (e) => {
+      if (e.target.id === 'modal-key-overlay') close();
+    };
+
+    document.getElementById('btn-submit-key-modal').onclick = async () => {
+      const apiKey = document.getElementById('provider-api-key')?.value.trim();
+      if (!apiKey) return alert('API Key is required.');
+      try {
+        await MesniumClient.request('mesnium.credentials.set', { providerId, apiKey });
+        close();
+        alert(`${providerId.toUpperCase()} credential saved successfully.`);
+        await renderConnectionsCards();
+      } catch (err) {
+        alert('Failed to save credential: ' + err.message);
+      }
+    };
+  }
+
+  async function openDependencyReportModal() {
+    const modalRoot = document.getElementById('mesnium-modal-root');
+    if (!modalRoot) return;
+
+    modalRoot.innerHTML = `
+      <div class="modal-overlay" id="modal-dep-overlay">
+        <div class="modal-card" style="max-width:760px;width:95%;">
+          <div class="modal-header">
+            <h3>Capability & Dependency Report</h3>
+            <button class="modal-close" id="btn-close-dep-modal">×</button>
+          </div>
+          <div class="modal-body" style="max-height:65vh;overflow-y:auto;">
+            <div class="conn-loading"><span class="thinking-dot"></span><span class="thinking-dot"></span><span>Auditing dependencies…</span></div>
+          </div>
+          <div class="modal-footer">
+            <button class="btn btn-secondary" id="btn-close-dep-footer">Close</button>
+          </div>
+        </div>
+      </div>`;
+
+    const close = () => { modalRoot.innerHTML = ''; };
+    document.getElementById('btn-close-dep-modal').onclick = close;
+    document.getElementById('btn-close-dep-footer').onclick = close;
+    document.getElementById('modal-dep-overlay').onclick = (e) => {
+      if (e.target.id === 'modal-dep-overlay') close();
+    };
+
+    try {
+      const rep = await MesniumClient.request('mesnium.credentials.report');
+      const body = modalRoot.querySelector('.modal-body');
+      if (body && rep) {
+        body.innerHTML = `
+          <div style="margin-bottom:14px;display:flex;gap:12px;align-items:center;">
+            <span class="badge badge--ok">${rep.connectedCount} Operational</span>
+            <span class="badge badge--neutral">${rep.providersCount} Total Registered Providers</span>
+          </div>
+          <div style="overflow-x:auto;">
+            <table style="width:100%;border-collapse:collapse;font-size:13px;line-height:1.5;">
+              <thead>
+                <tr style="border-bottom:1px solid var(--border,#16161f);text-align:left;color:var(--muted,#747480);">
+                  <th style="padding:8px 6px;">Capability</th>
+                  <th style="padding:8px 6px;">Status</th>
+                  <th style="padding:8px 6px;">Required Keys</th>
+                  <th style="padding:8px 6px;">Cost Model</th>
+                  <th style="padding:8px 6px;">Action Required</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${(rep.report || []).map(r => `
+                  <tr style="border-bottom:1px solid var(--border-subtle,#111118);">
+                    <td style="padding:8px 6px;font-weight:600;">${h(r.capability)}</td>
+                    <td style="padding:8px 6px;"><span class="badge ${r.status === 'CONNECTED' ? 'badge--ok' : 'badge--warn'}">${h(r.status)}</span></td>
+                    <td style="padding:8px 6px;font-family:monospace;font-size:12px;">${h(r.requiredKeys)}</td>
+                    <td style="padding:8px 6px;color:var(--muted,#747480);">${h(r.cost)}</td>
+                    <td style="padding:8px 6px;font-size:12px;">${h(r.actionRequired)}</td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          </div>
+        `;
+      }
+    } catch (err) {
+      const body = modalRoot.querySelector('.modal-body');
+      if (body) body.innerHTML = `<div class="error-state">Failed to audit dependencies: ${h(err.message)}</div>`;
+    }
+  }
+
+  async function openAddMcpServerModal() {
+    const modalRoot = document.getElementById('mesnium-modal-root');
+    if (!modalRoot) return;
+
+    modalRoot.innerHTML = `
+      <div class="modal-overlay" id="modal-mcp-overlay">
+        <div class="modal-card" style="max-width:620px;width:92%;">
+          <div class="modal-header">
+            <h3>Add Model Context Protocol (MCP) Server</h3>
+            <button class="modal-close" id="btn-close-mcp-modal">×</button>
+          </div>
+          <div class="modal-body">
+            <div class="form-field">
+              <label class="form-label" for="mcp-server-name">Server Name *</label>
+              <input type="text" id="mcp-server-name" class="form-input" placeholder="e.g. GitHub MCP Bridge, Linear Tools" />
+            </div>
+            <div class="form-field">
+              <label class="form-label" for="mcp-server-transport">Transport Protocol</label>
+              <select id="mcp-server-transport" class="form-input">
+                <option value="stdio">Stdio (Local Process / CLI)</option>
+                <option value="http">HTTP / SSE Remote Endpoint</option>
+              </select>
+            </div>
+            <div class="form-field" id="mcp-cmd-field">
+              <label class="form-label" for="mcp-server-cmd">Executable Command *</label>
+              <input type="text" id="mcp-server-cmd" class="form-input" placeholder="e.g. npx -y @modelcontextprotocol/server-github" />
+            </div>
+            <div class="form-field" id="mcp-url-field" style="display:none;">
+              <label class="form-label" for="mcp-server-url">Endpoint URL *</label>
+              <input type="text" id="mcp-server-url" class="form-input" placeholder="http://127.0.0.1:8000/sse" />
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button class="btn btn-secondary" id="btn-cancel-mcp-modal">Cancel</button>
+            <button class="btn btn-primary" id="btn-submit-mcp-modal">Register & Vet Safety</button>
+          </div>
+        </div>
+      </div>`;
+
+    const close = () => { modalRoot.innerHTML = ''; };
+    document.getElementById('btn-close-mcp-modal').onclick = close;
+    document.getElementById('btn-cancel-mcp-modal').onclick = close;
+    document.getElementById('modal-mcp-overlay').onclick = (e) => {
+      if (e.target.id === 'modal-mcp-overlay') close();
+    };
+
+    const transSelect = document.getElementById('mcp-server-transport');
+    transSelect.onchange = () => {
+      const isHttp = transSelect.value === 'http';
+      document.getElementById('mcp-cmd-field').style.display = isHttp ? 'none' : 'block';
+      document.getElementById('mcp-url-field').style.display = isHttp ? 'block' : 'none';
+    };
+
+    document.getElementById('btn-submit-mcp-modal').onclick = async () => {
+      const name = document.getElementById('mcp-server-name')?.value.trim();
+      const transport = transSelect.value;
+      const command = document.getElementById('mcp-server-cmd')?.value.trim();
+      const url = document.getElementById('mcp-server-url')?.value.trim();
+
+      if (!name) return alert('Server name is required.');
+      if (transport === 'stdio' && !command) return alert('Command is required for stdio.');
+      if (transport === 'http' && !url) return alert('URL is required for HTTP transport.');
+
+      try {
+        const cmdParts = command ? command.split(/\s+/) : [];
+        const baseCmd = cmdParts[0];
+        const args = cmdParts.slice(1);
+
+        const res = await MesniumClient.request('mesnium.mcp.servers.register', {
+          name,
+          transport,
+          command: baseCmd,
+          args,
+          url: url || undefined
+        });
+
+        close();
+        alert(`MCP Server "${name}" registered successfully.\nSafety Risk: ${res.server.riskAssessment?.riskLevel || 'LOW'}`);
+        await renderConnectionsCards();
+      } catch (err) {
+        alert('Failed to register MCP server: ' + err.message);
+      }
+    };
   }
 
   // ─── SETTINGS HANDLERS ─────────────────────────────────────────────────────

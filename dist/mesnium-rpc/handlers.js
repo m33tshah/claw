@@ -29,6 +29,7 @@ import { MesniumKnowledgeManager } from '../knowledge/index.js';
 import { getSharedKnowledgeManager, setSharedKnowledgeManager } from '../knowledge/agent-tool.js';
 import { getSharedAutomationRegistry } from '../mesnium-automations/registry.js';
 import { getSharedAutomationRuntime } from '../mesnium-automations/runtime.js';
+import { getSharedAutomationEngine } from '../automations/engine.js';
 import { getSharedActionGatekeeper } from '../mesnium-actions/gatekeeper.js';
 import { getSharedIntegrationRegistry } from '../integrations/registry.js';
 
@@ -42,6 +43,9 @@ import { getSharedMemoryManager } from '../mesnium-memory/index.js';
 import { getSharedMonitorManager } from '../mesnium-monitors/index.js';
 import { getSharedBriefingManager } from '../mesnium-briefing/index.js';
 import { getCapabilitiesStatus } from '../mesnium-capabilities/status.js';
+import { getSharedCredentialManager } from '../credentials/manager.js';
+import { getSharedMcpManager } from '../mcp/manager.js';
+import { getSharedCapabilityRegistry } from '../capabilities/registry.js';
 
 let sharedKm = null;
 
@@ -209,39 +213,11 @@ export const mesniumRpcHandlers = {
     }
   },
 
-  // 4. Automations Studio
+  // 4. Automations Control Plane (Persistent Server-Side Engine)
   'mesnium.automations.list': async ({ params = {}, respond }) => {
     try {
-      const automations = getSharedAutomationRegistry().listAutomations(params.workspaceId || 'default');
+      const automations = getSharedAutomationEngine().listAutomations(params.workspaceId || 'default');
       respond(true, { automations });
-    } catch (err) {
-      respond(false, void 0, { message: err.message });
-    }
-  },
-
-  'mesnium.automations.create': async ({ params = {}, respond }) => {
-    try {
-      if (!params.name) throw new Error('Automation name is required.');
-      const automationRegistry = getSharedAutomationRegistry();
-      const autoId = params.id || `auto_${params.name.toLowerCase().replace(/[^a-z0-9]+/g, '_')}_${Date.now()}`;
-      const automation = automationRegistry.createAutomation({
-        id: autoId,
-        workspaceId: params.workspaceId || 'default',
-        name: params.name,
-        description: params.description || 'Custom business automation',
-        status: 'active',
-        trigger: params.trigger || {
-          type: 'schedule',
-          schedule: { kind: 'cron', expr: '0 9 * * 1-5', tz: 'America/New_York', label: 'Every weekday morning' }
-        },
-        conditions: [],
-        steps: params.steps || [
-          { id: 'step_1', type: 'run_agent', agentId: params.agentId || 'agent_sales_assistant', payload: { prompt: params.prompt || 'Process pending business tasks.' } }
-        ],
-        agentId: params.agentId || 'agent_sales_assistant',
-        approvalPolicy: params.approvalPolicy || 'human_approval'
-      });
-      respond(true, { automation });
     } catch (err) {
       respond(false, void 0, { message: err.message });
     }
@@ -250,8 +226,48 @@ export const mesniumRpcHandlers = {
   'mesnium.automations.get': async ({ params = {}, respond }) => {
     try {
       if (!params.id) throw new Error('Automation ID is required.');
-      const automation = getSharedAutomationRegistry().getAutomation(params.id);
+      const automation = getSharedAutomationEngine().getAutomation(params.id);
       if (!automation) throw new Error(`Automation not found: ${params.id}`);
+      respond(true, { automation });
+    } catch (err) {
+      respond(false, void 0, { message: err.message });
+    }
+  },
+
+  'mesnium.automations.create': async ({ params = {}, respond }) => {
+    try {
+      if (!params.name) throw new Error('Automation name is required.');
+      const automation = getSharedAutomationEngine().createAutomation(params);
+      respond(true, { automation });
+    } catch (err) {
+      respond(false, void 0, { message: err.message });
+    }
+  },
+
+  'mesnium.automations.update': async ({ params = {}, respond }) => {
+    try {
+      if (!params.id) throw new Error('Automation ID is required.');
+      const automation = getSharedAutomationEngine().updateAutomation(params.id, params);
+      respond(true, { automation });
+    } catch (err) {
+      respond(false, void 0, { message: err.message });
+    }
+  },
+
+  'mesnium.automations.delete': async ({ params = {}, respond }) => {
+    try {
+      if (!params.id) throw new Error('Automation ID is required.');
+      const result = getSharedAutomationEngine().deleteAutomation(params.id);
+      respond(true, result);
+    } catch (err) {
+      respond(false, void 0, { message: err.message });
+    }
+  },
+
+  'mesnium.automations.duplicate': async ({ params = {}, respond }) => {
+    try {
+      if (!params.id) throw new Error('Automation ID is required.');
+      const automation = getSharedAutomationEngine().duplicateAutomation(params.id);
       respond(true, { automation });
     } catch (err) {
       respond(false, void 0, { message: err.message });
@@ -261,9 +277,36 @@ export const mesniumRpcHandlers = {
   'mesnium.automations.run': async ({ params = {}, respond }) => {
     try {
       if (!params.id) throw new Error('Automation ID is required.');
-      const runtime = getSharedAutomationRuntime();
-      const result = await runtime.triggerAutomation(params.id, params.payload || {}, 'manual');
+      const result = await getSharedAutomationEngine().triggerAutomation(
+        params.id,
+        params.payload || {},
+        params.triggerSource || 'manual',
+        params.resultChatId || null
+      );
       respond(true, result);
+    } catch (err) {
+      respond(false, void 0, { message: err.message });
+    }
+  },
+
+  'mesnium.automations.runs.list': async ({ params = {}, respond }) => {
+    try {
+      const runs = getSharedAutomationEngine().listRuns({
+        automationId: params.automationId || null,
+        limit: params.limit || 50
+      });
+      respond(true, { runs });
+    } catch (err) {
+      respond(false, void 0, { message: err.message });
+    }
+  },
+
+  'mesnium.automations.runs.get': async ({ params = {}, respond }) => {
+    try {
+      if (!params.runId) throw new Error('Run ID is required.');
+      const run = getSharedAutomationEngine().getRun(params.runId);
+      if (!run) throw new Error(`Run not found: ${params.runId}`);
+      respond(true, { run });
     } catch (err) {
       respond(false, void 0, { message: err.message });
     }
@@ -272,7 +315,7 @@ export const mesniumRpcHandlers = {
   'mesnium.automations.pause': async ({ params = {}, respond }) => {
     try {
       if (!params.id) throw new Error('Automation ID is required.');
-      const automation = getSharedAutomationRegistry().pauseAutomation(params.id);
+      const automation = getSharedAutomationEngine().disableAutomation(params.id);
       respond(true, { automation });
     } catch (err) {
       respond(false, void 0, { message: err.message });
@@ -282,7 +325,7 @@ export const mesniumRpcHandlers = {
   'mesnium.automations.resume': async ({ params = {}, respond }) => {
     try {
       if (!params.id) throw new Error('Automation ID is required.');
-      const automation = getSharedAutomationRegistry().resumeAutomation(params.id);
+      const automation = getSharedAutomationEngine().enableAutomation(params.id);
       respond(true, { automation });
     } catch (err) {
       respond(false, void 0, { message: err.message });
@@ -790,11 +833,89 @@ export const mesniumRpcHandlers = {
     }
   },
 
-  // 14. Capabilities Status
+  // 14. Capabilities Status & Dynamic Registry
   'mesnium.capabilities.status': async ({ respond }) => {
     try {
       const status = getCapabilitiesStatus();
       respond(true, status);
+    } catch (err) {
+      respond(false, void 0, { message: err.message });
+    }
+  },
+
+  'mesnium.capabilities.list': async ({ respond }) => {
+    try {
+      const result = await getSharedCapabilityRegistry().getAllCapabilities();
+      respond(true, result);
+    } catch (err) {
+      respond(false, void 0, { message: err.message });
+    }
+  },
+
+  // 15. Model Context Protocol (MCP) Server Management
+  'mesnium.mcp.servers.list': async ({ respond }) => {
+    try {
+      const servers = getSharedMcpManager().listServers();
+      respond(true, { servers });
+    } catch (err) {
+      respond(false, void 0, { message: err.message });
+    }
+  },
+
+  'mesnium.mcp.servers.register': async ({ params = {}, respond }) => {
+    try {
+      const server = await getSharedMcpManager().registerServer(params);
+      respond(true, { server });
+    } catch (err) {
+      respond(false, void 0, { message: err.message });
+    }
+  },
+
+  'mesnium.mcp.servers.delete': async ({ params = {}, respond }) => {
+    try {
+      if (!params.id) throw new Error('MCP server ID required.');
+      const result = getSharedMcpManager().deleteServer(params.id);
+      respond(true, result);
+    } catch (err) {
+      respond(false, void 0, { message: err.message });
+    }
+  },
+
+  'mesnium.mcp.servers.test': async ({ params = {}, respond }) => {
+    try {
+      if (!params.id) throw new Error('MCP server ID required.');
+      const result = await getSharedMcpManager().testServerConnection(params.id);
+      respond(true, result);
+    } catch (err) {
+      respond(false, void 0, { message: err.message });
+    }
+  },
+
+  // 16. Credentials & Dependency Reporting
+  'mesnium.credentials.set': async ({ params = {}, respond }) => {
+    try {
+      if (!params.providerId) throw new Error('Provider ID is required.');
+      const result = getSharedCredentialManager().setCredential(params.providerId, params);
+      respond(true, { credential: result });
+    } catch (err) {
+      respond(false, void 0, { message: err.message });
+    }
+  },
+
+  'mesnium.credentials.remove': async ({ params = {}, respond }) => {
+    try {
+      if (!params.providerId) throw new Error('Provider ID is required.');
+      const result = getSharedCredentialManager().removeCredential(params.providerId);
+      respond(true, result);
+    } catch (err) {
+      respond(false, void 0, { message: err.message });
+    }
+  },
+
+  'mesnium.credentials.report': async ({ respond }) => {
+    try {
+      const report = await getSharedCredentialManager().generateDependencyReport();
+      respond(true, report);
     } catch (err) {
       respond(false, void 0, { message: err.message });
     }

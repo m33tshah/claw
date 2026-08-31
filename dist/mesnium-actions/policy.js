@@ -107,7 +107,7 @@ export class MesniumActionPolicy {
 
     if (googleActions.includes(actionType)) {
       const googleIntegrations = this.integrationRegistry.listAccounts('google');
-      const hasConnected = googleIntegrations.some(i => i.status === 'CONNECTED');
+      const hasConnected = googleIntegrations.some(i => i.status === 'CONNECTED' || i.status === 'connected');
       if (!hasConnected) {
         return {
           ready: false,
