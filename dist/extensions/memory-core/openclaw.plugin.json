@@ -10,6 +10,7 @@
       "gmail_search",
       "google_drive_search",
       "knowledge_search",
+      "local_filesystem",
       "memory_get",
       "memory_search"
     ]

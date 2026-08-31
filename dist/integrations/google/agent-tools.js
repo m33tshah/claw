@@ -16,13 +16,13 @@ const calendarReader = new GoogleCalendarReader();
 export const GoogleDriveSearchTool = {
   name: 'google_drive_search',
   label: 'Google Drive Search',
-  description: 'Search files and documents in Google Drive. Returns file names, MIME types, and web links.',
+  description: 'Search files and documents in Google Drive. Returns file names, MIME types, and web links. Always invoke this tool directly to check live Drive access or search files.',
   parameters: {
     type: 'object',
     properties: {
       query: {
         type: 'string',
-        description: 'The search query or filename pattern to find in Google Drive.'
+        description: 'Optional search query or filename pattern to find in Google Drive (defaults to all recent files).'
       },
       maxResults: {
         type: 'integer',
@@ -31,16 +31,16 @@ export const GoogleDriveSearchTool = {
         description: 'Maximum number of files to return (default: 5).'
       }
     },
-    required: ['query'],
     additionalProperties: false
   },
-  execute: async (toolCallId, params) => {
+  execute: async (toolCallId, params = {}) => {
     try {
-      const files = await client.driveSearch(params.query, { max: params.maxResults || 5 });
+      const query = params?.query || '';
+      const files = await client.driveSearch(query, { max: params?.maxResults || 5 });
       if (!files || files.length === 0) {
         return {
           toolCallId,
-          content: [{ type: 'text', text: `No Google Drive files found matching: "${params.query}".` }]
+          content: [{ type: 'text', text: `No Google Drive files found${query ? ` matching: "${query}"` : ''}.` }]
         };
       }
 
@@ -62,13 +62,13 @@ export const GoogleDriveSearchTool = {
 export const GmailSearchTool = {
   name: 'gmail_search',
   label: 'Gmail Search',
-  description: 'Search emails in Gmail by sender, subject, date, or keyword. Returns email snippets and timestamps.',
+  description: 'Search and read emails from Gmail. Returns email snippets, subjects, and senders. Always invoke this tool directly to check live Gmail access or search emails.',
   parameters: {
     type: 'object',
     properties: {
       query: {
         type: 'string',
-        description: 'Gmail search query (e.g., "from:John", "newer_than:7d", "subject:proposal").'
+        description: 'Optional Gmail search query (e.g., "is:unread", "newer_than:7d", "from:someone", "subject:meeting"). Defaults to "newer_than:30d".'
       },
       maxResults: {
         type: 'integer',
@@ -77,16 +77,16 @@ export const GmailSearchTool = {
         description: 'Maximum number of emails to return (default: 5).'
       }
     },
-    required: ['query'],
     additionalProperties: false
   },
-  execute: async (toolCallId, params) => {
+  execute: async (toolCallId, params = {}) => {
     try {
-      const emails = await gmailReader.searchEmails(params.query, { max: params.maxResults || 5 });
+      const query = params?.query || 'newer_than:30d';
+      const emails = await gmailReader.searchEmails(query, { max: params?.maxResults || 5 });
       if (!emails || emails.length === 0) {
         return {
           toolCallId,
-          content: [{ type: 'text', text: `No emails found matching query: "${params.query}".` }]
+          content: [{ type: 'text', text: `No emails found matching query: "${query}".` }]
         };
       }
 
@@ -108,7 +108,7 @@ export const GmailSearchTool = {
 export const CalendarAgendaTool = {
   name: 'calendar_agenda',
   label: 'Calendar Agenda',
-  description: 'Fetch upcoming calendar events, schedule, and meeting details.',
+  description: 'Fetch upcoming calendar events, schedule, and meeting details. Always invoke this tool directly to check live Calendar access or retrieve agenda.',
   parameters: {
     type: 'object',
     properties: {

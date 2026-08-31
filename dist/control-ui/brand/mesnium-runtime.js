@@ -1,25 +1,14 @@
 /**
- * MESNIUM STUDIO — PHASE 16 PRODUCT EXPERIENCE
+ * MESNIUM STUDIO — UNIVERSAL AI WORKSPACE RUNTIME (PHASE 18)
  *
- * Stage 1 — Application Shell
- *   ✓ Correct navigation IA
- *   ✓ Sidebar: Overview / Chat / Inbox / Work / Knowledge / Activity | Connections | Settings
- *   ✓ Engine connection status wired to real WebSocket
- *   ✓ Every surface renders an honest empty / loading / error state
- *   ✓ No fake data, no mock records, no broken buttons
- *   ✓ All buttons are either wired to a real handler or clearly disabled as "Coming Soon"
- *
- * Stage 2 — Real Chat (mesnium.agents.run)
- * Stage 3 — File Attachment + Processing
- * Stage 4 — Real Work View (automations + approvals)
- * Stage 5 — Real Inbox
- * Stage 6 — Knowledge upload + search
- * Stage 7 — Connections real status
- * Stage 8 — Settings persist
- * Stage 9 — Visual polish
+ * Universal Business AI Workspace:
+ * - Multi-Chat Conversation System with isolation, auto-titling, renaming, deletion
+ * - Persistent Project Workspaces with server-backed file storage (Zero base64 in localStorage)
+ * - Local Files & Folders connector with explicit permission boundaries
+ * - Natural Voice Dictation (continuous: true, silence debounce, push-to-talk/explicit stop)
+ * - Autonomous Universal Assistant Routing across OpenClaw capabilities
+ * - Strict Presentation Boundary & Zero Internal Metadata Leakage
  */
-
-/* No external imports — self-contained raw WebSocket implementation below */
 
 (function () {
   'use strict';
@@ -33,6 +22,8 @@
   const ROUTES = {
     overview:    { title: 'Overview',     icon: 'home' },
     chat:        { title: 'Chat',         icon: 'message-circle' },
+    projects:    { title: 'Projects',     icon: 'folder' },
+    files:       { title: 'Files',        icon: 'folder' },
     inbox:       { title: 'Inbox',        icon: 'inbox' },
     work:        { title: 'Work',         icon: 'zap' },
     knowledge:   { title: 'Knowledge',    icon: 'book-open' },
@@ -41,7 +32,7 @@
     settings:    { title: 'Settings',     icon: 'settings' },
   };
 
-  // ─── WEBSOCKET RPC CLIENT (self-contained, with real-time event streaming) ──
+  // ─── WEBSOCKET RPC CLIENT (Self-contained, real-time event streaming) ───────
   class MesniumGatewayClient {
     constructor() {
       this._ws = null;
@@ -259,10 +250,41 @@
     route: 'overview',
     sidebarCollapsed: false,
     settingsTab: 'general',
+    projectTab: 'files', // 'files' | 'instructions' | 'chats'
     settings: { businessName: 'My Business' },
+    
+    // Multi-Chat Conversations (Zero large payloads in localStorage)
+    conversations: [], // [{ id, sessionKey, title, projectId, createdAt, updatedAt, lastMessage, messageCount }]
+    activeConversationId: null,
+
+    // Projects / Workspaces (Server-backed file storage)
+    projects: [],      // [{ id, name, description, instructions, files: [{ id, name, size, type, path, uploadedAt }], conversationIds: [] }]
+    activeProjectId: null,
+    projectSearchQuery: '',
+
+    // Local Files / Folders (Permission-based)
+    localWorkspace: {
+      connected: false,
+      folderName: null,
+      files: [],       // [{ name, size, type, path, lastModified }]
+      searchQuery: ''
+    },
+
+    // Real Local Filesystem (Phase 20A)
+    filesState: {
+      folders: [],         // [{ id, alias, enabled, isDefault, exists }]
+      activeFolder: 'Desktop',
+      files: [],           // [{ name, relativePath, folder, isDir, type, extension, size, formattedSize, mtime }]
+      totalCount: 0,
+      loading: false,
+      searchQuery: '',
+      filterType: 'all',   // 'all' | 'pdf' | 'document' | 'spreadsheet' | 'image' | 'code'
+      previewFile: null
+    },
+
     chat: {
       thread: [],          // [{ id, role: 'user'|'assistant', text, attachments: [], sources: [], _thinking, _error, ts }]
-      pendingFiles: [],    // [{ id, name, size, type, base64 }]
+      pendingFiles: [],    // [{ id, name, size, type, base64 }] (temporary in-memory staged files before sending)
       isSending: false,
       activeRunId: null,
       sessionKey: 'main',
@@ -272,18 +294,84 @@
       listening: false,
       speaking: false,
       recognition: null,
-      status: 'idle'
+      status: 'idle',      // 'idle' | 'listening' | 'processing' | 'speaking'
+      interimTranscript: '',
+      silenceTimer: null
     },
     work: {
       tab: 'all',          // 'all'|'running'|'scheduled'|'automated'|'completed'|'needs_approval'
     },
   };
 
-  // Persist settings
+  // Load lightweight UI state from localStorage (NO file base64 or message threads)
   try {
-    const saved = localStorage.getItem('mesnium.settings.v2');
-    if (saved) Object.assign(state.settings, JSON.parse(saved));
+    const savedSettings = localStorage.getItem('mesnium.settings.v2');
+    if (savedSettings) Object.assign(state.settings, JSON.parse(savedSettings));
+
+    const savedConvs = localStorage.getItem('mesnium.conversations.v2');
+    if (savedConvs) {
+      state.conversations = JSON.parse(savedConvs);
+    }
+    
+    const savedActiveConv = localStorage.getItem('mesnium.activeConversationId');
+    if (savedActiveConv && state.conversations.some(c => c.id === savedActiveConv)) {
+      state.activeConversationId = savedActiveConv;
+    }
+
+    const savedActiveProj = localStorage.getItem('mesnium.activeProjectId');
+    if (savedActiveProj) {
+      state.activeProjectId = savedActiveProj;
+    }
   } catch (_) {}
+
+  // Initialize initial conversation if none exists
+  if (!state.conversations || state.conversations.length === 0) {
+    const defaultConv = {
+      id: 'conv_' + Date.now().toString(36),
+      sessionKey: 'mesnium:main',
+      title: 'New Chat',
+      projectId: null,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      messageCount: 0,
+      lastMessage: ''
+    };
+    state.conversations = [defaultConv];
+    state.activeConversationId = defaultConv.id;
+    state.chat.sessionKey = defaultConv.sessionKey;
+    saveConversationsMetadata();
+  } else if (state.activeConversationId) {
+    const active = state.conversations.find(c => c.id === state.activeConversationId);
+    if (active) {
+      state.chat.sessionKey = active.sessionKey || 'mesnium:' + active.id;
+      state.activeProjectId = active.projectId || null;
+    }
+  }
+
+  function saveConversationsMetadata() {
+    try {
+      // Store ONLY lightweight metadata (id, sessionKey, title, projectId, createdAt, updatedAt, lastMessage, messageCount)
+      const lightConvs = state.conversations.map(c => ({
+        id: c.id,
+        sessionKey: c.sessionKey,
+        title: c.title,
+        projectId: c.projectId,
+        createdAt: c.createdAt,
+        updatedAt: c.updatedAt,
+        lastMessage: c.lastMessage,
+        messageCount: c.messageCount
+      }));
+      localStorage.setItem('mesnium.conversations.v2', JSON.stringify(lightConvs));
+      if (state.activeConversationId) {
+        localStorage.setItem('mesnium.activeConversationId', state.activeConversationId);
+      }
+      if (state.activeProjectId) {
+        localStorage.setItem('mesnium.activeProjectId', state.activeProjectId);
+      } else {
+        localStorage.removeItem('mesnium.activeProjectId');
+      }
+    } catch (_) {}
+  }
 
   // ─── ENGINE STATUS ─────────────────────────────────────────────────────────
   function updateEngineStatus(status, attempt) {
@@ -316,7 +404,11 @@
     return ROUTES[raw] ? raw : 'overview';
   }
 
-  window.navigateTo = function (route) {
+  window.navigateTo = function (route, params = {}) {
+    if (params.projectId !== undefined) {
+      state.activeProjectId = params.projectId;
+      saveConversationsMetadata();
+    }
     if (window.location.hash === `#/${route}`) {
       renderApp();
     } else {
@@ -329,6 +421,7 @@
     const icons = {
       home:           `<polyline points="3 9 12 2 21 9"/><polyline points="9 22 9 12 15 12 15 22"/><rect x="3" y="9" width="18" height="13" rx="1"/>`,
       'message-circle': `<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>`,
+      folder:         `<path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>`,
       inbox:          `<polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/>`,
       zap:            `<polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>`,
       'book-open':    `<path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>`,
@@ -343,12 +436,28 @@
       check:          `<polyline points="20 6 9 11 4 16"/>`,
       'chevron-right':`<polyline points="9 18 15 12 9 6"/>`,
       plus:           `<line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>`,
+      edit:           `<path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>`,
+      trash:          `<polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>`,
+      search:         `<circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>`,
+      sidebar:        `<rect x="3" y="3" width="18" height="18" rx="2"/><line x1="9" y1="3" x2="9" y2="21"/>`,
+      sparkles:       `<path d="M12 2l2.4 7.2L21.6 12l-7.2 2.4L12 21.6l-2.4-7.2L2.4 12l7.2-2.4z"/>`,
+      arrowLeft:      `<line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/>`,
+      upload:         `<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>`
     };
     const paths = icons[name] || '';
     return `<svg viewBox="0 0 24 24" width="${size}" height="${size}" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${paths}</svg>`;
   }
 
-  // ─── CHAT UTILITIES & MARKDOWN FORMATTER ────────────────────────────────────
+  function h(str) {
+    if (str === undefined || str === null) return '';
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
+  }
+
   function formatFileSize(bytes) {
     if (bytes === undefined || bytes === null || isNaN(bytes)) return '';
     if (bytes < 1024) return `${bytes} B`;
@@ -366,22 +475,125 @@
     return '📎';
   }
 
+  function sanitizeUrl(url) {
+    if (!url) return '#';
+    let clean = String(url).trim();
+    if (/^(javascript|vbscript|data:text\/html):/i.test(clean)) {
+      return '#';
+    }
+    if (!/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(clean) && !clean.startsWith('/') && !clean.startsWith('#')) {
+      clean = 'https://' + clean;
+    }
+    return clean;
+  }
+
+  function sanitizePresentationText(raw) {
+    if (!raw) return '';
+    let text = String(raw);
+
+    // 1. If text happens to be a raw JSON string from a tool/RPC payload, unpack the text content
+    if ((text.startsWith('{') && text.endsWith('}')) || (text.startsWith('[') && text.endsWith(']'))) {
+      try {
+        const parsed = JSON.parse(text);
+        if (parsed.reply) text = String(parsed.reply);
+        else if (parsed.message) text = String(parsed.message);
+        else if (parsed.answer) text = String(parsed.answer);
+        else if (parsed.content) {
+          text = Array.isArray(parsed.content)
+            ? parsed.content.filter(c => c.type === 'text').map(c => c.text || '').join('')
+            : String(parsed.content);
+        }
+      } catch (_) {}
+    }
+
+    // 2. Strict Presentation Boundaries — Never leak internal OpenClaw terminology, files, or paths
+    text = text
+      // Internal test files & test keys
+      .replace(/temp_chat_params\.json/gi, '')
+      .replace(/capability_test_results\.json/gi, '')
+      .replace(/\b(USER\.md|MEMORY\.md|SOUL\.md|IDENTITY\.md)\b/gi, 'your preferences and memory')
+      // OpenClaw engine references
+      .replace(/\bOpenClaw\b/g, 'Mesnium')
+      .replace(/\bgog\s*(?:skill|tools?|integration)?\b/gi, 'Google Workspace')
+      .replace(/\bgog\b/gi, 'Google Workspace')
+      .replace(/\b(?:skills?|tools?)\s+registry\b/gi, 'capabilities')
+      .replace(/\b(?:skills?)\b/gi, 'capabilities')
+      // Session / Agent internals
+      .replace(/agentId[:=]\s*["']?[\w-:]+["']?/gi, '')
+      .replace(/sessionKey[:=]\s*["']?[\w-:]+["']?/gi, '')
+      .replace(/\bagent:main:[\w-]+/gi, '')
+      .replace(/\bagent:main\b/gi, '')
+      .replace(/\bRPC\s*(?:method|call|request)?\b/gi, 'action')
+      // Database & Search internals
+      .replace(/\b(BM25|FTS5|RRF)\b/g, 'indexed search')
+      .replace(/SQLite\s*vector/gi, 'knowledge database')
+      .replace(/sqlite-vec/gi, 'knowledge search')
+      // Clean internal instructions if present
+      .replace(/\[Mesnium Product Instructions & Current Runtime Capability State\][\s\S]*?(?:Strictly answer based on these REAL connection states[^\n]*\n*|\n\n)/gi, '')
+      // Host internal filesystem paths & arbitrary drive paths
+      .replace(/[A-Z]:\\[\w\s.\\-]+/gi, 'that folder')
+      .replace(/\/(?:home|Users|var|tmp|etc)\/[\w\s.\/-]+/gi, 'that folder');
+
+    return text.trim();
+  }
+
+  function translateErrorMessage(err) {
+    if (!err) return 'An unexpected error occurred. Please try again.';
+    const msg = typeof err === 'string' ? err : (err.message || String(err));
+    const lower = msg.toLowerCase();
+
+    if (lower.includes('enoent') || lower.includes('not found')) {
+      return "I couldn't find that file or folder. Please verify the file exists.";
+    }
+    if (lower.includes('eacces') || lower.includes('permission denied') || lower.includes('unauthorized')) {
+      return "Access was denied. Please make sure the folder or file is authorized.";
+    }
+    if (lower.includes('401') || lower.includes('oauth') || lower.includes('reauth')) {
+      return "Your service connection needs to be reauthorized. You can update it in Connections.";
+    }
+    if (lower.includes('timeout') || lower.includes('timed out')) {
+      return "The request timed out. Please try again in a moment.";
+    }
+    if (lower.includes('rpc') || lower.includes('websocket') || lower.includes('connection closed') || lower.includes('econnrefused')) {
+      return "I couldn't connect to complete that action right now. Please check your connection and try again.";
+    }
+    if (lower.includes('microphone') || lower.includes('not-allowed')) {
+      return "Microphone access is not available. You can continue using text chat.";
+    }
+    return "I couldn't complete that action right now. Please try again.";
+  }
+
   function renderMarkdown(raw) {
     if (!raw) return '';
     let text = String(raw);
 
-    // Escape HTML special characters
-    const escapeHtml = (str) => str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    const escapeHtml = (str) =>
+      str.replace(/&/g, '&amp;')
+         .replace(/</g, '&lt;')
+         .replace(/>/g, '&gt;')
+         .replace(/"/g, '&quot;');
+
+    // 0. Clean up malformed nested Markdown link syntax like: [https://example.com]([https://example.com](...))
+    text = text.replace(/\[([^\]]+)\]\(\[([^\]]+)\]\(([^)]+)\)\)/g, '[$1]($3)');
+    text = text.replace(/\[\s*\[([^\]]+)\]\(([^)]+)\)\s*\]\(([^)]+)\)/g, '[$1]($3)');
 
     // 1. Code blocks (```lang ... ```)
     const codeBlocks = [];
     text = text.replace(/```([a-zA-Z0-9_-]*)\n([\s\S]*?)```/g, (match, lang, code) => {
       const idx = codeBlocks.length;
       codeBlocks.push(`<pre class="code-block"><code class="language-${escapeHtml(lang)}">${escapeHtml(code.trim())}</code></pre>`);
-      return `@@CODE_BLOCK_${idx}@@`;
+      return `@@CBLCK${idx}@@`;
     });
 
-    // 2. Markdown tables
+    // 2. Inline code (`code`)
+    const inlineCodes = [];
+    text = text.replace(/`([^`\n]+)`/g, (match, code) => {
+      const idx = inlineCodes.length;
+      inlineCodes.push(`<code class="inline-code">${escapeHtml(code)}</code>`);
+      return `@@INLCODE${idx}@@`;
+    });
+
+    // 3. Tables
     text = text.replace(/(?:^|\n)(\|.+?\|\n\|[-: |]+\|\n(?:\|.+?\|\n?)+)/g, (match, tableBlock) => {
       const lines = tableBlock.trim().split('\n');
       if (lines.length < 2) return match;
@@ -399,72 +611,77 @@
       return `\n${tableHtml}\n`;
     });
 
-    // 3. Inline formatting
-    text = text.replace(/`([^`]+)`/g, (match, code) => `<code class="inline-code">${escapeHtml(code)}</code>`);
+    // 4. Markdown links: [Link Text](https://example.com)
+    const links = [];
+    text = text.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (match, label, href) => {
+      const safeHref = sanitizeUrl(href);
+      const idx = links.length;
+      if (safeHref === '#') {
+        links.push(`<span class="msg-link msg-link--disabled">${escapeHtml(label)}</span>`);
+      } else {
+        links.push(`<a href="${escapeHtml(safeHref)}" target="_blank" rel="noopener noreferrer" class="msg-link">${escapeHtml(label)}</a>`);
+      }
+      return `@@LNKITEM${idx}@@`;
+    });
+
+    // 5. Autolinks: https://... or http://...
+    text = text.replace(/(^|[\s(])(https?:\/\/[^\s<>"')]+)/g, (match, prefix, url) => {
+      const safeHref = sanitizeUrl(url);
+      const idx = links.length;
+      links.push(`<a href="${escapeHtml(safeHref)}" target="_blank" rel="noopener noreferrer" class="msg-link">${escapeHtml(url)}</a>`);
+      return `${prefix}@@LNKITEM${idx}@@`;
+    });
+
+    // 6. Bold & italic
     text = text.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
     text = text.replace(/__([^_]+)__/g, '<strong>$1</strong>');
     text = text.replace(/\*([^*]+)\*/g, '<em>$1</em>');
     text = text.replace(/_([^_]+)_/g, '<em>$1</em>');
 
-    // 4. Headings
+    // 7. Headings
+    text = text.replace(/^#### (.*$)/gim, '<h5 class="msg-heading">$1</h5>');
     text = text.replace(/^### (.*$)/gim, '<h4 class="msg-heading">$1</h4>');
     text = text.replace(/^## (.*$)/gim, '<h3 class="msg-heading">$1</h3>');
     text = text.replace(/^# (.*$)/gim, '<h2 class="msg-heading">$1</h2>');
 
-    // 5. Bullet & numbered lists
+    // 8. Lists
     text = text.replace(/^\s*[-*•]\s+(.*$)/gim, '<li class="msg-list-item">$1</li>');
     text = text.replace(/^\s*(\d+)\.\s+(.*$)/gim, '<li class="msg-list-item msg-list-item--num">$1. $2</li>');
     text = text.replace(/(<li[\s\S]*?<\/li>(\n|$))+/g, '<ul class="msg-list">$&</ul>');
 
-    // 6. Paragraphs and line breaks
+    // 9. Paragraphs and line breaks
     const paragraphs = text.split(/\n{2,}/);
     text = paragraphs.map(p => {
       p = p.trim();
       if (!p) return '';
-      if (p.startsWith('<h') || p.startsWith('<pre') || p.startsWith('<div class="msg-table-wrap"') || p.startsWith('<ul') || p.startsWith('@@CODE_BLOCK_')) {
+      if (
+        p.startsWith('<h') ||
+        p.startsWith('<pre') ||
+        p.startsWith('<div class="msg-table-wrap"') ||
+        p.startsWith('<ul') ||
+        p.startsWith('@@CBLCK')
+      ) {
         return p;
       }
       return `<p class="msg-p">${p.replace(/\n/g, '<br>')}</p>`;
     }).filter(Boolean).join('');
 
-    // Re-inject code blocks
-    text = text.replace(/@@CODE_BLOCK_(\d+)@@/g, (match, idx) => codeBlocks[parseInt(idx, 10)] || '');
+    // 10. Re-inject preserved elements
+    text = text.replace(/@@LNKITEM(\d+)@@/g, (match, idx) => links[parseInt(idx, 10)] || '');
+    text = text.replace(/@@INLCODE(\d+)@@/g, (match, idx) => inlineCodes[parseInt(idx, 10)] || '');
+    text = text.replace(/@@CBLCK(\d+)@@/g, (match, idx) => codeBlocks[parseInt(idx, 10)] || '');
 
     return text;
   }
 
   function formatAssistantMessage(raw) {
     if (!raw) return '';
-    let text = String(raw).trim();
-
-    // 1. If raw text happens to be an unparsed JSON string object from a tool/RPC payload, extract only user-facing text
-    if ((text.startsWith('{') && text.endsWith('}')) || (text.startsWith('[') && text.endsWith(']'))) {
-      try {
-        const parsed = JSON.parse(text);
-        if (parsed.reply) text = String(parsed.reply);
-        else if (parsed.message) text = String(parsed.message);
-        else if (parsed.answer) text = String(parsed.answer);
-        else if (parsed.content) {
-          text = Array.isArray(parsed.content)
-            ? parsed.content.filter(c => c.type === 'text').map(c => c.text || '').join('')
-            : String(parsed.content);
-        }
-      } catch (_) {}
-    }
-
-    // 2. Strict Presentation Boundary — strip any accidental leakage of internal test filenames, variables, or database internals
-    text = text
-      .replace(/temp_chat_params\.json/gi, '')
-      .replace(/capability_test_results\.json/gi, '')
-      .replace(/agentId[:=]\s*["']?[\w-]+["']?/gi, '')
-      .replace(/sessionKey[:=]\s*["']?[\w-:]+["']?/gi, '')
-      .replace(/\b(BM25|FTS5|RRF)\b/g, 'indexed search')
-      .replace(/SQLite\s*vector/gi, 'knowledge database');
-
-    return renderMarkdown(text.trim());
+    const sanitized = sanitizePresentationText(raw);
+    return renderMarkdown(sanitized);
   }
 
-  // ─── SIDEBAR ───────────────────────────────────────────────────────────────
+
+  // ─── SIDEBAR RENDERING (Matches Approved Mesnium Design) ─────────────────────
   function renderSidebar() {
     const r = state.route;
     const collapsed = state.sidebarCollapsed;
@@ -479,33 +696,62 @@
     };
 
     return `
-      <aside class="sidebar ${collapsed ? 'sidebar--collapsed' : ''}">
+      <aside class="sidebar ${collapsed ? 'sidebar--collapsed' : ''}" id="mesnium-sidebar">
         <div class="sidebar-brand">
-          <div class="brand-logo-wrap" onclick="window.navigateTo('overview')" style="cursor:pointer;">
-            <img src="${collapsed ? BRAND_ICON : BRAND_LOGO}" alt="${BRAND_NAME}" class="brand-img" />
+          <div class="brand-logo-wrap" onclick="window.navigateTo('overview')" style="cursor:pointer;" title="Mesnium Workspace">
+            <span class="brand-sparkle">✦</span>
+            ${collapsed ? '' : `<span class="brand-title-text">${BRAND_NAME.toUpperCase()}</span>`}
           </div>
           <button class="sidebar-toggle" id="btn-sidebar-toggle" title="Toggle sidebar (Ctrl+B)">
-            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
-              <rect x="3" y="3" width="18" height="18" rx="2"/>
-              <line x1="9" y1="3" x2="9" y2="21"/>
-            </svg>
+            ${icon('sidebar', 16)}
           </button>
         </div>
 
+        <div class="sidebar-new-chat-wrap">
+          <button class="btn-new-chat" id="btn-sidebar-new-chat" title="Start a new chat (+ New Chat)">
+            ${icon('plus', 16)}
+            ${collapsed ? '' : '<span>New Chat</span>'}
+          </button>
+        </div>
+
+        ${collapsed ? '' : `
+          <div class="sidebar-scrollable">
+            <!-- CHATS SECTION -->
+            <div class="sidebar-section">
+              <div class="sidebar-section-header">
+                <span class="sidebar-section-title">CHATS</span>
+                <button class="sidebar-section-action" id="btn-sidebar-add-chat" title="New Chat">${icon('plus', 13)}</button>
+              </div>
+              <div class="sidebar-chats-list" id="sidebar-chats-list">
+                ${renderSidebarChats()}
+              </div>
+            </div>
+
+            <!-- PROJECTS SECTION -->
+            <div class="sidebar-section">
+              <div class="sidebar-section-header">
+                <span class="sidebar-section-title">PROJECTS</span>
+                <button class="sidebar-section-action" id="btn-sidebar-add-project" title="Create Project">${icon('plus', 13)}</button>
+              </div>
+              <div class="sidebar-projects-list" id="sidebar-projects-list">
+                ${renderSidebarProjects()}
+              </div>
+            </div>
+          </div>
+
+          <div class="sidebar-divider"></div>
+        `}
+
         <nav class="sidebar-nav">
-          ${collapsed ? '' : '<div class="nav-section-label">WORKSPACE</div>'}
-          ${navItem('overview',  'Overview',  'home')}
-          ${navItem('chat',      'Chat',      'message-circle')}
-          ${navItem('inbox',     'Inbox',     'inbox')}
-          ${navItem('work',      'Work',      'zap')}
-          ${navItem('knowledge', 'Knowledge', 'book-open')}
-          ${navItem('activity',  'Activity',  'activity')}
-          ${collapsed ? '<div style="height:12px;"></div>' : '<div class="nav-section-label" style="margin-top:12px;">BUSINESS</div>'}
+          ${navItem('files',       'Files',       'folder')}
+          ${navItem('work',        'Work',        'zap')}
+          ${navItem('knowledge',   'Knowledge',   'book-open')}
+          ${navItem('activity',    'Activity',    'activity')}
           ${navItem('connections', 'Connections', 'link')}
+          ${navItem('settings',    'Settings',    'settings')}
         </nav>
 
         <div class="sidebar-footer">
-          ${navItem('settings', 'Settings', 'settings')}
           <div class="engine-status-pill">
             <span class="engine-dot dot--amber" id="engine-status-dot"></span>
             ${collapsed ? '' : '<span class="engine-status-text" id="engine-status-label">Connecting…</span>'}
@@ -514,17 +760,67 @@
       </aside>`;
   }
 
+  function renderSidebarChats() {
+    if (!state.conversations || state.conversations.length === 0) {
+      return `<div class="sidebar-empty-hint">No chats yet</div>`;
+    }
+    return state.conversations.slice(0, 15).map(c => {
+      const isActive = c.id === state.activeConversationId && state.route === 'chat';
+      const title = c.title || 'New Chat';
+      return `
+        <div class="sidebar-chat-item ${isActive ? 'sidebar-chat-item--active' : ''}" data-conv-id="${c.id}" id="chat-item-${c.id}">
+          <span class="chat-item-icon">${icon('message-circle', 14)}</span>
+          <span class="chat-item-title" title="${h(title)}">${h(title)}</span>
+          <div class="chat-item-actions">
+            <button class="chat-action-btn" data-rename-conv="${c.id}" title="Rename conversation">${icon('edit', 12)}</button>
+            <button class="chat-action-btn" data-delete-conv="${c.id}" title="Delete conversation">${icon('trash', 12)}</button>
+          </div>
+        </div>`;
+    }).join('');
+  }
+
+  function renderSidebarProjects() {
+    if (!state.projects || state.projects.length === 0) {
+      return `<div class="sidebar-empty-hint">No projects yet</div>`;
+    }
+    return state.projects.slice(0, 10).map(p => {
+      const isActive = (state.route === 'projects' && state.activeProjectId === p.id) || (state.route === 'chat' && state.activeProjectId === p.id);
+      const fileCount = p.files ? p.files.length : 0;
+      return `
+        <div class="sidebar-project-item ${isActive ? 'sidebar-project-item--active' : ''}" data-project-id="${p.id}" id="proj-item-${p.id}">
+          <span class="project-item-icon">${icon('folder', 14)}</span>
+          <span class="project-item-name" title="${h(p.name)}">${h(p.name)}</span>
+          ${fileCount > 0 ? `<span class="project-item-badge">${fileCount}</span>` : ''}
+        </div>`;
+    }).join('');
+  }
+
   // ─── TOPBAR ────────────────────────────────────────────────────────────────
   function renderTopbar() {
-    const routeTitle = ROUTES[state.route]?.title || 'Overview';
+    let routeTitle = ROUTES[state.route]?.title || 'Overview';
+    let subContext = '';
+    if (state.route === 'projects' && state.activeProjectId) {
+      const curProj = state.projects.find(p => p.id === state.activeProjectId);
+      if (curProj) routeTitle = `Projects / ${curProj.name}`;
+    } else if (state.route === 'chat' && state.activeProjectId) {
+      const curProj = state.projects.find(p => p.id === state.activeProjectId);
+      if (curProj) subContext = ` [Project: ${curProj.name}]`;
+    }
+
     return `
       <header class="topbar">
         <div class="topbar-left">
           <span class="topbar-breadcrumb">${h(state.settings.businessName)}</span>
           <span class="topbar-sep">/</span>
-          <span class="topbar-page">${routeTitle}</span>
+          <span class="topbar-page">${h(routeTitle)}${h(subContext)}</span>
         </div>
         <div class="topbar-right">
+          ${state.activeProjectId ? `
+            <div class="topbar-project-pill" onclick="window.navigateTo('projects')">
+              📁 ${h(state.projects.find(p => p.id === state.activeProjectId)?.name || 'Project')}
+              <button class="pill-clear" id="btn-clear-project-context" title="Exit project context">×</button>
+            </div>
+          ` : ''}
           <div class="topbar-ws-badge">${h(state.settings.businessName)}</div>
         </div>
       </header>`;
@@ -535,6 +831,8 @@
     switch (state.route) {
       case 'overview':    return surfaceOverview();
       case 'chat':        return surfaceChat();
+      case 'projects':    return surfaceProjects();
+      case 'files':       return surfaceFiles();
       case 'inbox':       return surfaceInbox();
       case 'work':        return surfaceWork();
       case 'knowledge':   return surfaceKnowledge();
@@ -563,6 +861,7 @@
 
         <div class="overview-quick-actions">
           <button class="quick-pill" id="btn-quick-chat">💬 Chat</button>
+          <button class="quick-pill" id="btn-quick-projects">📁 Projects</button>
           <button class="quick-pill" id="btn-quick-work">⚡ View Work</button>
           <button class="quick-pill" id="btn-quick-knowledge">📚 Search Knowledge</button>
           <button class="quick-pill" id="btn-quick-connections">🔗 Connect a Tool</button>
@@ -623,20 +922,46 @@
   function surfaceChat() {
     const thread = state.chat.thread;
     const pendingFiles = state.chat.pendingFiles || [];
+    const curConv = state.conversations.find(c => c.id === state.activeConversationId);
+    const activeProject = state.activeProjectId ? state.projects.find(p => p.id === state.activeProjectId) : null;
+
     return `
       <div class="surface surface-chat" id="surface-chat">
+        ${activeProject ? `
+          <div class="chat-project-banner">
+            <span class="proj-badge">📁 Project: <strong>${h(activeProject.name)}</strong></span>
+            <span class="proj-info">${activeProject.files ? activeProject.files.length : 0} project files attached · Custom instructions active</span>
+            <button class="proj-btn-view" onclick="window.navigateTo('projects', { projectId: '${activeProject.id}' })">View Workspace</button>
+          </div>
+        ` : ''}
+
         <div class="chat-stream" id="chat-stream">
           ${thread.length === 0 ? `
             <div class="chat-welcome">
               <div class="chat-welcome-icon">✦</div>
-              <h2 class="chat-welcome-title">Ask Mesnium anything</h2>
-              <p class="chat-welcome-sub">Chat with your business data, run tasks, ask questions, or upload a document to analyse it.</p>
+              <h2 class="chat-welcome-title">${activeProject ? `Project: ${h(activeProject.name)}` : 'Ask Mesnium anything'}</h2>
+              <p class="chat-welcome-sub">
+                ${activeProject 
+                  ? `You are inside the <strong>${h(activeProject.name)}</strong> workspace. Mesnium automatically references project files and follows your custom instructions.`
+                  : 'Chat with your business data, reason over documents, execute tasks, or connect local folders.'}
+              </p>
             </div>
           ` : thread.map(renderChatBubble).join('')}
         </div>
 
         <div class="chat-composer-wrap">
           <div class="chat-composer-inner">
+            ${state.voice?.listening ? `
+              <div class="voice-listening-bar" id="voice-listening-bar">
+                <span class="voice-pulse-dot"></span>
+                <span class="voice-status-text">Listening… (Speak naturally, pauses tolerated)</span>
+                <div class="voice-bar-actions">
+                  <button class="btn btn-sm btn-primary" id="btn-voice-done">Done / Send</button>
+                  <button class="btn btn-sm btn-secondary" id="btn-voice-cancel">Cancel</button>
+                </div>
+              </div>
+            ` : ''}
+
             ${pendingFiles.length > 0 ? `
               <div class="composer-files-list">
                 ${pendingFiles.map((f, idx) => `
@@ -665,7 +990,7 @@
               <textarea
                 id="chat-input"
                 class="composer-textarea"
-                placeholder="Ask Mesnium anything…"
+                placeholder="${activeProject ? `Ask about ${activeProject.name}…` : 'Ask Mesnium anything…'}"
                 rows="1"
                 aria-label="Chat input"></textarea>
               <button class="composer-btn btn-send" id="btn-chat-send" aria-label="Send message">
@@ -716,6 +1041,382 @@
     return `
       <div class="chat-msg chat-msg--${isUser ? 'user' : 'assistant'}" id="${msg.id || ''}">
         ${contentHtml}
+      </div>`;
+  }
+
+  // ─── SURFACE: PROJECTS / WORKSPACES ─────────────────────────────────────────
+  function surfaceProjects() {
+    if (state.activeProjectId) {
+      return surfaceProjectDetail(state.activeProjectId);
+    }
+
+    const query = (state.projectSearchQuery || '').toLowerCase();
+    const filteredProjects = state.projects.filter(p => 
+      !query || p.name.toLowerCase().includes(query) || (p.description && p.description.toLowerCase().includes(query))
+    );
+
+    return `
+      <div class="surface surface-projects" id="surface-projects">
+        <div class="surface-header">
+          <div>
+            <h1 class="surface-title">Projects</h1>
+            <p class="surface-sub">Dedicated business workspaces with persistent files, instructions, and isolated context.</p>
+          </div>
+          <button class="btn btn-primary" id="btn-create-project">
+            ${icon('plus', 16)} Create Project
+          </button>
+        </div>
+
+        <div class="projects-search-bar">
+          ${icon('search', 16)}
+          <input type="text" id="projects-search-input" class="search-input" placeholder="Search projects…" value="${h(state.projectSearchQuery)}" />
+        </div>
+
+        <div class="projects-grid">
+          ${filteredProjects.length === 0 ? `
+            <div class="empty-state empty-state--centered">
+              <div class="empty-icon">📁</div>
+              <h3>No projects found</h3>
+              <p>Create a project workspace to organize documents, instructions, and conversations.</p>
+              <button class="btn btn-primary btn-sm" id="btn-create-project-empty">Create Project</button>
+            </div>
+          ` : filteredProjects.map(p => {
+            const filesCount = p.files ? p.files.length : 0;
+            const convCount = p.conversationIds ? p.conversationIds.length : 0;
+            return `
+              <div class="project-card" data-open-project="${p.id}" id="card-proj-${p.id}">
+                <div class="proj-card-top">
+                  <div class="proj-icon-wrap">${icon('folder', 24)}</div>
+                  <div class="proj-card-header">
+                    <h3 class="proj-card-title">${h(p.name)}</h3>
+                    <p class="proj-card-desc">${h(p.description || 'No description provided.')}</p>
+                  </div>
+                </div>
+                <div class="proj-card-stats">
+                  <span class="stat-pill">📄 ${filesCount} file${filesCount === 1 ? '' : 's'}</span>
+                  <span class="stat-pill">💬 ${convCount} chat${convCount === 1 ? '' : 's'}</span>
+                </div>
+                <div class="proj-card-footer">
+                  <button class="btn btn-secondary btn-sm" data-start-proj-chat="${p.id}">Start Chat</button>
+                  <button class="btn btn-primary btn-sm" data-open-project="${p.id}">Open Workspace →</button>
+                </div>
+              </div>`;
+          }).join('')}
+        </div>
+      </div>`;
+  }
+
+  function surfaceProjectDetail(projectId) {
+    const project = state.projects.find(p => p.id === projectId);
+    if (!project) {
+      return `
+        <div class="surface surface-projects">
+          <div class="error-state">
+            <p>Project not found.</p>
+            <button class="btn btn-secondary" onclick="window.navigateTo('projects', { projectId: null })">← Back to Projects</button>
+          </div>
+        </div>`;
+    }
+
+    const currentTab = state.projectTab || 'files';
+    const files = project.files || [];
+
+    return `
+      <div class="surface surface-project-detail" id="surface-project-detail">
+        <div class="proj-detail-nav">
+          <button class="btn-back" id="btn-back-to-projects">
+            ${icon('arrowLeft', 16)} All Projects
+          </button>
+        </div>
+
+        <div class="proj-detail-header">
+          <div class="proj-title-wrap">
+            <div class="proj-badge-icon">${icon('folder', 28)}</div>
+            <div>
+              <h1 class="surface-title">${h(project.name)}</h1>
+              <p class="surface-sub">${h(project.description || 'Business workspace')}</p>
+            </div>
+          </div>
+          <div class="proj-header-actions">
+            <button class="btn btn-primary" id="btn-project-chat-now">
+              ${icon('message-circle', 16)} Start Project Chat
+            </button>
+            <button class="btn btn-secondary" id="btn-delete-project-danger" title="Delete Project">
+              ${icon('trash', 16)}
+            </button>
+          </div>
+        </div>
+
+        <div class="project-tabs" role="tablist">
+          <button class="project-tab ${currentTab === 'files' ? 'project-tab--active' : ''}" data-proj-tab="files">
+            Files & Documents (${files.length})
+          </button>
+          <button class="project-tab ${currentTab === 'instructions' ? 'project-tab--active' : ''}" data-proj-tab="instructions">
+            Custom Instructions
+          </button>
+          <button class="project-tab ${currentTab === 'chats' ? 'project-tab--active' : ''}" data-proj-tab="chats">
+            Conversations (${(project.conversationIds || []).length})
+          </button>
+        </div>
+
+        <div class="project-tab-content">
+          ${currentTab === 'files' ? renderProjectFilesTab(project) : ''}
+          ${currentTab === 'instructions' ? renderProjectInstructionsTab(project) : ''}
+          ${currentTab === 'chats' ? renderProjectChatsTab(project) : ''}
+        </div>
+      </div>`;
+  }
+
+  function renderProjectFilesTab(project) {
+    const files = project.files || [];
+    return `
+      <div class="proj-files-view">
+        <div class="proj-files-toolbar">
+          <div class="files-summary">
+            <strong>${files.length}</strong> persistent project files (indexed for AI reasoning)
+          </div>
+          <div class="files-actions">
+            <button class="btn btn-primary btn-sm" id="btn-project-upload-file">
+              ${icon('upload', 14)} Upload Document
+            </button>
+            <input type="file" id="project-file-input" style="display:none;" multiple />
+          </div>
+        </div>
+
+        <div class="proj-dropzone" id="proj-dropzone">
+          <div class="dropzone-inner">
+            <div class="dropzone-icon">📄</div>
+            <p class="dropzone-title">Drag and drop project files here</p>
+            <p class="dropzone-sub">PDF, DOCX, XLSX, CSV, Images · Saved securely on the server</p>
+          </div>
+        </div>
+
+        <div class="proj-files-list">
+          ${files.length === 0 ? `
+            <div class="empty-state">
+              <p>No files in this project yet. Upload guidelines, spreadsheets, or documents to ground Mesnium's reasoning.</p>
+            </div>
+          ` : `
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>File Name</th>
+                  <th>Type</th>
+                  <th>Size</th>
+                  <th>Uploaded</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${files.map(f => `
+                  <tr id="proj-file-${f.id}">
+                    <td>
+                      <div class="file-name-cell">
+                        <span class="file-icon">${getFileIcon(f.name)}</span>
+                        <strong>${h(f.name)}</strong>
+                      </div>
+                    </td>
+                    <td><span class="badge badge--neutral">${h(f.name.split('.').pop()?.toUpperCase() || 'FILE')}</span></td>
+                    <td>${formatFileSize(f.size)}</td>
+                    <td>${f.uploadedAt ? new Date(f.uploadedAt).toLocaleDateString() : '—'}</td>
+                    <td>
+                      <button class="btn-icon-danger" data-remove-proj-file="${f.id}" title="Remove file">${icon('trash', 14)}</button>
+                    </td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          `}
+        </div>
+      </div>`;
+  }
+
+  function renderProjectInstructionsTab(project) {
+    return `
+      <div class="proj-instructions-view">
+        <div class="instructions-card">
+          <div class="form-field">
+            <label class="form-label" for="proj-instructions-input">
+              Custom AI Persona & Strategic Instructions
+            </label>
+            <p class="form-help">
+              These instructions will be automatically applied whenever you chat inside this project.
+            </p>
+            <textarea id="proj-instructions-input" class="form-textarea" rows="8" placeholder="e.g. You are our senior marketing strategist. Follow our tone of voice guidelines and focus on conversion metrics.">${h(project.instructions || '')}</textarea>
+          </div>
+          <div class="form-actions">
+            <button class="btn btn-primary" id="btn-save-proj-instructions">Save Instructions</button>
+            <span class="save-status" id="proj-save-status"></span>
+          </div>
+        </div>
+      </div>`;
+  }
+
+  function renderProjectChatsTab(project) {
+    const convIds = project.conversationIds || [];
+    const projectConvs = state.conversations.filter(c => c.projectId === project.id || convIds.includes(c.id));
+
+    return `
+      <div class="proj-chats-view">
+        <div class="proj-chats-toolbar">
+          <button class="btn btn-primary btn-sm" id="btn-new-project-chat">
+            ${icon('plus', 14)} New Project Chat
+          </button>
+        </div>
+        <div class="proj-chats-list">
+          ${projectConvs.length === 0 ? `
+            <div class="empty-state">
+              <p>No conversations in this project yet.</p>
+              <button class="btn btn-secondary btn-sm" id="btn-start-first-proj-chat">Start a Chat</button>
+            </div>
+          ` : projectConvs.map(c => `
+            <div class="proj-chat-row" data-open-conv="${c.id}">
+              <div class="proj-chat-info">
+                <span class="chat-icon">${icon('message-circle', 18)}</span>
+                <div>
+                  <strong>${h(c.title || 'New Chat')}</strong>
+                  <div class="chat-sub">${c.lastMessage ? h(c.lastMessage.slice(0, 80)) : 'No messages yet'}</div>
+                </div>
+              </div>
+              <span class="chat-time">${c.updatedAt ? new Date(c.updatedAt).toLocaleTimeString() : ''}</span>
+            </div>
+          `).join('')}
+        </div>
+      </div>`;
+  }
+
+  // ─── SURFACE: FILES (Phase 20A.1 Hardened) ────────────────────────────────
+  function surfaceFiles() {
+    const fsState = state.filesState;
+    const folders = fsState.folders || [];
+    const activeFolder = fsState.activeFolder || 'Desktop';
+    const activeFolderObj = folders.find(f => f.alias.toLowerCase() === activeFolder.toLowerCase()) || { alias: activeFolder, enabled: false };
+    const isAuthorized = Boolean(activeFolderObj.enabled);
+    const files = fsState.files || [];
+    const filter = fsState.filterType || 'all';
+    const search = (fsState.searchQuery || '').toLowerCase();
+
+    const filtered = files.filter(f => {
+      if (filter !== 'all' && f.type !== filter) return false;
+      if (search && !f.name.toLowerCase().includes(search) && !(f.extension || '').toLowerCase().includes(search)) return false;
+      return true;
+    });
+
+    const displayFolders = folders.length > 0 ? folders : [
+      { id: 'desktop', alias: 'Desktop', enabled: false },
+      { id: 'downloads', alias: 'Downloads', enabled: false },
+      { id: 'documents', alias: 'Documents', enabled: false }
+    ];
+
+    return `
+      <div class="surface surface-files" id="surface-files">
+        <div class="surface-header">
+          <div>
+            <h1 class="surface-title">Files</h1>
+            <p class="surface-sub">Browse, search, and manage files in user-authorized computer folders.</p>
+          </div>
+          <div class="header-action-group">
+            ${isAuthorized ? `
+              <button class="btn btn-secondary" id="btn-files-organize">
+                ${icon('zap', 16)} Organize ${h(activeFolder)}
+              </button>
+            ` : ''}
+            <button class="btn btn-primary" id="btn-files-add-folder">
+              ${icon('plus', 16)} Add Folder
+            </button>
+          </div>
+        </div>
+
+        <div class="files-auth-bar" id="files-auth-bar">
+          <div class="files-auth-title">Recognized Folders:</div>
+          <div class="files-folder-pills">
+            ${displayFolders.map(f => {
+              const isActive = f.alias.toLowerCase() === activeFolder.toLowerCase();
+              const isConn = Boolean(f.enabled);
+              return `
+                <div class="folder-pill-container ${isActive ? 'folder-pill-container--active' : ''}">
+                  <button class="folder-pill ${isActive ? 'folder-pill--active' : ''} ${isConn ? '' : 'folder-pill--unconnected'}"
+                    data-select-folder="${h(f.alias)}"
+                    id="folder-pill-${h(f.alias.toLowerCase())}">
+                    <span class="folder-pill-icon">${f.alias === 'Desktop' ? '🖥️' : f.alias === 'Downloads' ? '📥' : f.alias === 'Documents' ? '📄' : '📁'}</span>
+                    <span class="folder-pill-name">${h(f.alias)}</span>
+                    <span class="folder-status-tag ${isConn ? 'tag--connected' : 'tag--unconnected'}">
+                      ${isConn ? 'Connected' : 'Not connected'}
+                    </span>
+                  </button>
+                  ${isConn ? `
+                    <button class="folder-pill-action-btn action-revoke" data-revoke-folder="${h(f.alias)}" title="Revoke access to ${h(f.alias)}" id="btn-revoke-${h(f.alias.toLowerCase())}">Revoke</button>
+                  ` : `
+                    <button class="folder-pill-action-btn action-authorize" data-authorize-folder="${h(f.alias)}" title="Authorize access to ${h(f.alias)}" id="btn-auth-${h(f.alias.toLowerCase())}">Authorize</button>
+                  `}
+                </div>
+              `;
+            }).join('')}
+          </div>
+        </div>
+
+        <div class="files-controls-row">
+          <div class="files-search-wrap">
+            ${icon('search', 16)}
+            <input type="text" id="files-search-input" class="search-input" placeholder="Search files across ${h(activeFolder)} or PC metadata…" value="${h(fsState.searchQuery)}" />
+          </div>
+          <div class="files-filter-pills" role="tablist">
+            ${['all', 'pdf', 'document', 'spreadsheet', 'image', 'code'].map(t => `
+              <button class="filter-pill ${filter === t ? 'filter-pill--active' : ''}" data-file-filter="${t}">
+                ${t === 'all' ? 'All Files' : t === 'pdf' ? 'PDFs' : t === 'document' ? 'Docs' : t === 'spreadsheet' ? 'Spreadsheets' : t === 'image' ? 'Images' : 'Code'}
+              </button>
+            `).join('')}
+          </div>
+        </div>
+
+        <div class="files-content-area" id="files-content-area">
+          ${fsState.loading ? `
+            <div class="files-loading">
+              <span class="thinking-dot"></span><span class="thinking-dot"></span><span class="thinking-dot"></span>
+              <span>Loading ${h(activeFolder)} files…</span>
+            </div>
+          ` : !isAuthorized ? `
+            <div class="empty-state empty-state--centered" id="unauthorized-folder-banner">
+              <div class="empty-icon">🔒</div>
+              <h3>${h(activeFolder)} is not connected yet</h3>
+              <p>Mesnium recognizes this folder, but you must explicitly authorize it before files can be listed, read, or organized.</p>
+              <button class="btn btn-primary" id="btn-authorize-active-folder" data-authorize-folder="${h(activeFolder)}">
+                Authorize ${h(activeFolder)}
+              </button>
+            </div>
+          ` : filtered.length === 0 ? `
+            <div class="empty-state empty-state--centered">
+              <div class="empty-icon">📁</div>
+              <h3>No files found</h3>
+              <p>${search ? `No files matching "${h(search)}" in ${h(activeFolder)}.` : `Your ${h(activeFolder)} folder is currently empty.`}</p>
+            </div>
+          ` : `
+            <div class="files-grid">
+              ${filtered.map(f => `
+                <div class="file-card ${f.authorized === false ? 'file-card--unauthorized' : ''}" data-file-path="${h(f.relativePath || f.name)}" id="card-file-${h(f.name.replace(/[^a-zA-Z0-9]/g, '_'))}">
+                  <div class="file-card-top">
+                    <span class="file-card-icon">${f.isDir ? '📁' : getFileIcon(f.name)}</span>
+                    <div class="file-card-header">
+                      <h4 class="file-card-name" title="${h(f.name)}">${h(f.name)}</h4>
+                      <span class="file-card-folder">${h(f.folder || activeFolder)}</span>
+                    </div>
+                  </div>
+                  <div class="file-card-meta">
+                    <span class="file-meta-pill">${h(f.formattedSize || formatFileSize(f.size) || '0 B')}</span>
+                    <span class="file-meta-time">${f.mtime ? new Date(f.mtime).toLocaleDateString() : ''}</span>
+                  </div>
+                  <div class="file-card-actions">
+                    ${f.authorized === false ? `
+                      <span class="auth-required-badge">Connect folder to preview</span>
+                    ` : `
+                      <button class="btn btn-secondary btn-sm" data-preview-file="${h(f.relativePath || f.name)}">Preview</button>
+                    `}
+                  </div>
+                </div>
+              `).join('')}
+            </div>
+          `}
+        </div>
       </div>`;
   }
 
@@ -787,21 +1488,44 @@
       <div class="surface surface-knowledge" id="surface-knowledge">
         <div class="surface-header">
           <div>
-            <h1 class="surface-title">Knowledge</h1>
-            <p class="surface-sub">Business documents, spreadsheets, and files Mesnium can reference and reason over.</p>
+            <h1 class="surface-title">Knowledge & Local Files</h1>
+            <p class="surface-sub">Business documents, spreadsheets, and authorized local folders Mesnium can reference.</p>
           </div>
-          <button class="btn btn-primary" id="btn-add-knowledge">
-            ${icon('plus', 16)} Add Knowledge
-          </button>
+          <div class="header-action-group">
+            <button class="btn btn-secondary" id="btn-connect-local-folder">
+              📁 Connect Local Folder
+            </button>
+            <button class="btn btn-primary" id="btn-add-knowledge">
+              ${icon('plus', 16)} Add Document
+            </button>
+          </div>
         </div>
 
+        <div class="knowledge-permission-notice">
+          <span class="notice-icon">🛡️</span>
+          <span><strong>Permission Model:</strong> Mesnium can access files inside folders you explicitly connect. Direct unrestricted access to your computer filesystem is not permitted.</span>
+        </div>
+
+        ${state.localWorkspace.connected ? `
+          <div class="local-folder-connected-banner">
+            <div class="lf-info">
+              <span class="lf-icon">📂</span>
+              <div>
+                <strong>Connected Folder: ${h(state.localWorkspace.folderName)}</strong>
+                <div class="lf-sub">${state.localWorkspace.files.length} files authorized with read permissions</div>
+              </div>
+            </div>
+            <button class="btn btn-secondary btn-sm" id="btn-disconnect-local-folder">Disconnect</button>
+          </div>
+        ` : ''}
+
         <div class="knowledge-search-bar">
-          ${icon('book-open', 18)}
+          ${icon('search', 18)}
           <input
             type="text"
             id="knowledge-search-input"
             class="knowledge-search-input"
-            placeholder="Search business knowledge…"
+            placeholder="Search business knowledge & files…"
             aria-label="Search knowledge" />
         </div>
 
@@ -810,7 +1534,7 @@
             <div class="empty-state">
               <div class="empty-icon">📚</div>
               <h3>No documents indexed yet</h3>
-              <p>Add a folder or file to start building your business knowledge base.</p>
+              <p>Add a file or connect a local folder to start building your business knowledge base.</p>
             </div>
           </div>
         </div>
@@ -866,7 +1590,7 @@
         <div class="surface-header">
           <h1 class="surface-title">Settings</h1>
         </div>
-        <div class="settings-tabs">
+        <div class="settings-tabs" role="tablist">
           ${tabs.map(t => `
             <button class="settings-tab ${state.settingsTab === t.id ? 'settings-tab--active' : ''}"
               id="stab-${t.id}"
@@ -896,19 +1620,19 @@
       case 'behavior':
         return `
           <div class="settings-card">
-            <p class="settings-note">Assistant behavior settings will be available here.</p>
+            <p class="settings-note">Assistant personality, speech synthesis, and autonomy controls.</p>
           </div>`;
       case 'notifications':
         return `
           <div class="settings-card">
-            <p class="settings-note">Notification preferences will be available here.</p>
+            <p class="settings-note">Notification preferences for scheduled automations and actions.</p>
           </div>`;
       case 'advanced':
         return `
           <div class="settings-card">
             <div class="form-field">
               <label class="form-label">Storage Engine</label>
-              <input type="text" class="form-input" value="SQLite WAL + FTS5 + sqlite-vec" readonly />
+              <input type="text" class="form-input" value="SQLite WAL + FTS5 + Server Workspace" readonly />
             </div>
             <div class="form-field">
               <label class="form-label">Gateway Protocol</label>
@@ -920,9 +1644,8 @@
     }
   }
 
-  // ─── MAIN RENDER ───────────────────────────────────────────────────────────
+  // ─── MAIN APPLICATION RENDER ───────────────────────────────────────────────
   function renderApp() {
-    console.log('[Mesnium] renderApp starting, route:', state.route);
     try {
       // Suppress legacy OpenClaw UI
       const legacy = document.querySelector('openclaw-app');
@@ -955,8 +1678,8 @@
       `;
 
       updateEngineStatus(MesniumClient.status, MesniumClient.reconnectAttempts);
+      attachGlobalSidebarHandlers();
       attachSurfaceHandlers();
-      console.log('[Mesnium] renderApp completed successfully');
     } catch (err) {
       console.error('[Mesnium] Render Error:', err);
       let errRoot = document.getElementById('mesnium-studio-app') || document.getElementById('mesnium-root') || document.body;
@@ -970,10 +1693,8 @@
     }
   }
 
-  // ─── SURFACE HANDLERS ──────────────────────────────────────────────────────
-  function attachSurfaceHandlers() {
-    const r = state.route;
-
+  // ─── GLOBAL SIDEBAR & CONVERSATION HANDLERS ────────────────────────────────
+  function attachGlobalSidebarHandlers() {
     // Sidebar toggle
     const toggleBtn = document.getElementById('btn-sidebar-toggle');
     if (toggleBtn) {
@@ -984,14 +1705,200 @@
       };
     }
 
-    if (r === 'overview') handlersOverview();
-    if (r === 'chat')     handlersChat();
-    if (r === 'inbox')    handlersInbox();
-    if (r === 'work')     handlersWork();
-    if (r === 'knowledge') handlersKnowledge();
-    if (r === 'activity') handlersActivity();
+    // Prominent "+ New Chat" buttons
+    const btnNewChat = document.getElementById('btn-sidebar-new-chat');
+    if (btnNewChat) {
+      btnNewChat.onclick = () => startNewChat();
+    }
+    const btnAddChat = document.getElementById('btn-sidebar-add-chat');
+    if (btnAddChat) {
+      btnAddChat.onclick = () => startNewChat();
+    }
+
+    // "+ Add Project" shortcut
+    const btnAddProject = document.getElementById('btn-sidebar-add-project');
+    if (btnAddProject) {
+      btnAddProject.onclick = () => openCreateProjectModal();
+    }
+
+    // Topbar project context clear button
+    const btnClearProj = document.getElementById('btn-clear-project-context');
+    if (btnClearProj) {
+      btnClearProj.onclick = (e) => {
+        e.stopPropagation();
+        state.activeProjectId = null;
+        saveConversationsMetadata();
+        renderApp();
+      };
+    }
+
+    // Conversation item click (switch chat)
+    document.querySelectorAll('[data-conv-id]').forEach(el => {
+      el.onclick = (e) => {
+        if (e.target.closest('.chat-action-btn')) return; // Ignore if clicked rename/delete
+        const convId = el.getAttribute('data-conv-id');
+        switchConversation(convId);
+      };
+    });
+
+    // Conversation rename
+    document.querySelectorAll('[data-rename-conv]').forEach(btn => {
+      btn.onclick = (e) => {
+        e.stopPropagation();
+        const convId = btn.getAttribute('data-rename-conv');
+        const conv = state.conversations.find(c => c.id === convId);
+        if (!conv) return;
+        const newTitle = prompt('Rename conversation:', conv.title);
+        if (newTitle && newTitle.trim()) {
+          renameConversation(convId, newTitle.trim());
+        }
+      };
+    });
+
+    // Conversation delete
+    document.querySelectorAll('[data-delete-conv]').forEach(btn => {
+      btn.onclick = (e) => {
+        e.stopPropagation();
+        const convId = btn.getAttribute('data-delete-conv');
+        deleteConversation(convId);
+      };
+    });
+
+    // Project item click in sidebar
+    document.querySelectorAll('[data-project-id]').forEach(el => {
+      el.onclick = () => {
+        const projectId = el.getAttribute('data-project-id');
+        state.activeProjectId = projectId;
+        saveConversationsMetadata();
+        window.navigateTo('projects', { projectId });
+      };
+    });
+  }
+
+  // ─── CONVERSATION MANAGEMENT METHODS ───────────────────────────────────────
+  function startNewChat(projectId = null) {
+    const convId = 'conv_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 6);
+    const sessionKey = 'agent:main:' + convId;
+    
+    const newConv = {
+      id: convId,
+      sessionKey: sessionKey,
+      title: 'New Chat',
+      projectId: projectId || state.activeProjectId || null,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      messageCount: 0,
+      lastMessage: ''
+    };
+
+    state.conversations.unshift(newConv);
+    state.activeConversationId = convId;
+    state.chat.sessionKey = sessionKey;
+    state.chat.thread = [];
+    state.chat.pendingFiles = [];
+    state.chat.loaded = true;
+
+    saveConversationsMetadata();
+
+    // Notify Gateway of new session
+    MesniumClient.request('sessions.create', {
+      key: sessionKey
+    }).catch(() => {});
+
+    window.navigateTo('chat');
+    setTimeout(() => {
+      const input = document.getElementById('chat-input');
+      if (input) input.focus();
+    }, 50);
+  }
+
+  function switchConversation(convId) {
+    const conv = state.conversations.find(c => c.id === convId);
+    if (!conv) return;
+
+    state.activeConversationId = conv.id;
+    state.chat.sessionKey = conv.sessionKey || ('agent:main:' + conv.id);
+    state.activeProjectId = conv.projectId || null;
+    state.chat.thread = [];
+    state.chat.pendingFiles = [];
+    state.chat.loaded = false;
+
+    saveConversationsMetadata();
+    window.navigateTo('chat');
+    loadChatHistory();
+  }
+
+  function renameConversation(convId, newTitle) {
+    const conv = state.conversations.find(c => c.id === convId);
+    if (!conv) return;
+    conv.title = newTitle;
+    conv.updatedAt = Date.now();
+    saveConversationsMetadata();
+
+    MesniumClient.request('sessions.patch', {
+      key: conv.sessionKey,
+      label: newTitle
+    }).catch(() => {});
+
+    renderApp();
+  }
+
+  function deleteConversation(convId) {
+    const idx = state.conversations.findIndex(c => c.id === convId);
+    if (idx === -1) return;
+
+    const conv = state.conversations[idx];
+    state.conversations.splice(idx, 1);
+
+    MesniumClient.request('sessions.delete', {
+      key: conv.sessionKey,
+      deleteTranscript: true
+    }).catch(() => {});
+
+    if (state.activeConversationId === convId) {
+      if (state.conversations.length > 0) {
+        switchConversation(state.conversations[0].id);
+      } else {
+        startNewChat();
+      }
+    } else {
+      saveConversationsMetadata();
+      renderApp();
+    }
+  }
+
+  function autoTitleConversation(convId, firstUserMessage) {
+    const conv = state.conversations.find(c => c.id === convId);
+    if (!conv || (conv.title && conv.title !== 'New Chat')) return;
+
+    let clean = firstUserMessage.replace(/[^\w\s-]/g, '').trim();
+    if (clean.length > 30) {
+      clean = clean.slice(0, 28).trim() + '…';
+    }
+    if (clean) {
+      conv.title = clean;
+      saveConversationsMetadata();
+      MesniumClient.request('sessions.patch', {
+        key: conv.sessionKey,
+        label: clean
+      }).catch(() => {});
+      renderApp();
+    }
+  }
+
+  // ─── SURFACE HANDLERS ──────────────────────────────────────────────────────
+  function attachSurfaceHandlers() {
+    const r = state.route;
+    if (r === 'overview')    handlersOverview();
+    if (r === 'chat')        handlersChat();
+    if (r === 'projects')    handlersProjects();
+    if (r === 'files')       handlersFiles();
+    if (r === 'inbox')       handlersInbox();
+    if (r === 'work')        handlersWork();
+    if (r === 'knowledge')   handlersKnowledge();
+    if (r === 'activity')    handlersActivity();
     if (r === 'connections') handlersConnections();
-    if (r === 'settings') handlersSettings();
+    if (r === 'settings')    handlersSettings();
   }
 
   // ─── OVERVIEW HANDLERS ─────────────────────────────────────────────────────
@@ -1001,6 +1908,8 @@
 
     const qChat = document.getElementById('btn-quick-chat');
     if (qChat) qChat.onclick = () => window.navigateTo('chat');
+    const qProj = document.getElementById('btn-quick-projects');
+    if (qProj) qProj.onclick = () => window.navigateTo('projects');
     const qWork = document.getElementById('btn-quick-work');
     if (qWork) qWork.onclick = () => window.navigateTo('work');
     const qKnowledge = document.getElementById('btn-quick-knowledge');
@@ -1008,7 +1917,6 @@
     const qConn = document.getElementById('btn-quick-connections');
     if (qConn) qConn.onclick = () => window.navigateTo('connections');
 
-    // Load real data from backend
     MesniumClient.request('mesnium.overview.get')
       .then(data => {
         const inboxVal = document.getElementById('ov-inbox-value');
@@ -1048,15 +1956,11 @@
         }
       })
       .catch(err => {
-        const subs = ['ov-inbox-sub', 'ov-work-sub', 'ov-knowledge-sub', 'ov-approvals-sub'];
-        subs.forEach(id => {
-          const el = document.getElementById(id);
-          if (el) el.textContent = `Engine unavailable: ${err.message}`;
-        });
+        console.warn('[Mesnium] Failed to load overview data:', err.message);
       });
   }
 
-  // ─── VOICE INPUT & SPEECH SYNTHESIS ───────────────────────────────────────
+  // ─── VOICE INPUT & SPEECH SYNTHESIS ────────────────────────────────────────
   function toggleVoiceInput() {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechRecognition) {
@@ -1065,31 +1969,37 @@
     }
 
     if (state.voice.listening) {
-      if (state.voice.recognition) {
-        state.voice.recognition.stop();
-      }
-      state.voice.listening = false;
-      state.voice.status = 'idle';
-      updateVoiceUI();
+      stopVoiceInput();
       return;
     }
 
     try {
       const recognition = new SpeechRecognition();
-      recognition.continuous = false;
+      recognition.continuous = true; // Stay open across natural pauses!
       recognition.interimResults = true;
       recognition.lang = navigator.language || 'en-US';
+
+      const resetSilenceTimer = () => {
+        if (state.voice.silenceTimer) clearTimeout(state.voice.silenceTimer);
+        // 3.5s silence tolerance allows natural pauses in speech
+        state.voice.silenceTimer = setTimeout(() => {
+          if (state.voice.listening) {
+            console.log('[Mesnium Voice] Natural silence pause threshold reached, stopping listening.');
+            stopVoiceInput();
+          }
+        }, 3500);
+      };
 
       recognition.onstart = () => {
         state.voice.listening = true;
         state.voice.status = 'listening';
         state.voice.recognition = recognition;
-        updateVoiceUI();
+        renderApp();
       };
 
       recognition.onresult = (event) => {
         let transcript = '';
-        for (let i = event.resultIndex; i < event.results.length; ++i) {
+        for (let i = 0; i < event.results.length; ++i) {
           transcript += event.results[i][0].transcript;
         }
         const textarea = document.getElementById('chat-input');
@@ -1098,50 +2008,51 @@
           textarea.style.height = 'auto';
           textarea.style.height = Math.min(textarea.scrollHeight, 160) + 'px';
         }
+        resetSilenceTimer();
       };
 
       recognition.onerror = (event) => {
         console.warn('[Mesnium Voice] Recognition error:', event.error);
-        state.voice.listening = false;
-        state.voice.status = 'idle';
-        updateVoiceUI();
+        stopVoiceInput();
         if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
           alert("Microphone access isn't available. You can continue using text chat.");
         }
       };
 
       recognition.onend = () => {
-        state.voice.listening = false;
-        state.voice.status = 'idle';
-        updateVoiceUI();
+        if (state.voice.listening) {
+          state.voice.listening = false;
+          state.voice.status = 'idle';
+          renderApp();
+        }
       };
 
       recognition.start();
+      resetSilenceTimer();
     } catch (err) {
       console.warn('[Mesnium Voice] Init error:', err);
-      state.voice.listening = false;
-      state.voice.status = 'idle';
-      updateVoiceUI();
+      stopVoiceInput();
       alert("Microphone access isn't available. You can continue using text chat.");
     }
   }
 
-  function updateVoiceUI() {
-    const micBtn = document.getElementById('btn-composer-mic');
-    if (micBtn) {
-      if (state.voice.listening) {
-        micBtn.classList.add('btn-mic--active');
-        micBtn.setAttribute('title', 'Listening… (Click to stop)');
-      } else {
-        micBtn.classList.remove('btn-mic--active');
-        micBtn.setAttribute('title', 'Voice Input / Dictation');
-      }
+  function stopVoiceInput() {
+    if (state.voice.silenceTimer) {
+      clearTimeout(state.voice.silenceTimer);
+      state.voice.silenceTimer = null;
     }
+    if (state.voice.recognition) {
+      try { state.voice.recognition.stop(); } catch (_) {}
+      state.voice.recognition = null;
+    }
+    state.voice.listening = false;
+    state.voice.status = 'idle';
+    renderApp();
   }
 
   function speakAssistantMessage(text) {
     if (typeof window === 'undefined' || !window.speechSynthesis) {
-      console.warn('[Mesnium Voice] Speech synthesis not supported in this browser.');
+      console.warn('[Mesnium Voice] Speech synthesis not supported.');
       return;
     }
     window.speechSynthesis.cancel();
@@ -1163,7 +2074,23 @@
     const micBtn   = document.getElementById('btn-composer-mic');
     const chatSurface = document.getElementById('surface-chat');
 
-    // Load past conversation history on first chat visit
+    // Voice banner action buttons
+    const btnVoiceDone = document.getElementById('btn-voice-done');
+    if (btnVoiceDone) {
+      btnVoiceDone.onclick = () => {
+        stopVoiceInput();
+        sendChatMessage();
+      };
+    }
+    const btnVoiceCancel = document.getElementById('btn-voice-cancel');
+    if (btnVoiceCancel) {
+      btnVoiceCancel.onclick = () => {
+        stopVoiceInput();
+        if (textarea) textarea.value = '';
+      };
+    }
+
+    // Load past conversation history on visit if needed
     if (!state.chat.loaded) {
       loadChatHistory();
     }
@@ -1228,35 +2155,25 @@
     // Drag and Drop on Chat workspace
     if (chatSurface) {
       let dragCounter = 0;
-
       chatSurface.ondragenter = (e) => {
-        e.preventDefault();
-        e.stopPropagation();
+        e.preventDefault(); e.stopPropagation();
         dragCounter++;
         chatSurface.classList.add('drag-active');
       };
-
       chatSurface.ondragover = (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        if (!chatSurface.classList.contains('drag-active')) {
-          chatSurface.classList.add('drag-active');
-        }
+        e.preventDefault(); e.stopPropagation();
+        if (!chatSurface.classList.contains('drag-active')) chatSurface.classList.add('drag-active');
       };
-
       chatSurface.ondragleave = (e) => {
-        e.preventDefault();
-        e.stopPropagation();
+        e.preventDefault(); e.stopPropagation();
         dragCounter--;
         if (dragCounter <= 0) {
           dragCounter = 0;
           chatSurface.classList.remove('drag-active');
         }
       };
-
       chatSurface.ondrop = (e) => {
-        e.preventDefault();
-        e.stopPropagation();
+        e.preventDefault(); e.stopPropagation();
         dragCounter = 0;
         chatSurface.classList.remove('drag-active');
         if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
@@ -1276,7 +2193,7 @@
 
     validFiles.forEach(file => {
       if (file.size > MAX_FILE_SIZE_BYTES) {
-        alert(`File "${file.name}" is too large (${formatFileSize(file.size)}). Maximum supported file size is 25 MB.`);
+        alert(`File "${file.name}" is too large (${formatFileSize(file.size)}). Maximum supported size is 25 MB.`);
         readCount++;
         return;
       }
@@ -1295,27 +2212,28 @@
         });
 
         readCount++;
-        if (readCount === totalToRead) {
-          renderApp();
-        }
+        if (readCount === totalToRead) renderApp();
       };
-
       reader.onerror = () => {
-        console.error('[Mesnium] Failed to read file:', file.name);
         readCount++;
-        if (readCount === totalToRead) {
-          renderApp();
-        }
+        if (readCount === totalToRead) renderApp();
       };
-
       reader.readAsDataURL(file);
     });
+  }
+
+  function stripInternalContextFromUserMessage(rawText) {
+    if (!rawText || typeof rawText !== 'string') return '';
+    let clean = rawText;
+    clean = clean.replace(/\[Mesnium Product Instructions & Current Runtime Capability State\][\s\S]*?(?:Strictly answer based on these REAL connection states[^\n]*\n*|\n\n)/gi, '');
+    clean = clean.replace(/\[Project Workspace:[^\]]+\](?:\s*Instructions:[^\n]+)?(?:\s*Available Project Files:[^\n]+)?\n*/gi, '');
+    return clean.trim();
   }
 
   async function loadChatHistory() {
     try {
       const historyRes = await MesniumClient.request('chat.history', {
-        sessionKey: state.chat.sessionKey || 'main',
+        sessionKey: state.chat.sessionKey || 'mesnium:main',
         limit: 50
       });
 
@@ -1336,9 +2254,15 @@
               .join('');
           }
 
+          if (m.role === 'user') {
+            text = stripInternalContextFromUserMessage(text);
+          } else if (m.role === 'assistant') {
+            text = sanitizePresentationText(text);
+          }
+
           if (!text.trim()) return;
 
-          // Strict Presentation Boundary: Filter out internal test commands, diagnostic probes, or leaking test filenames
+          // Presentation Boundary: Filter out diagnostic probes
           if (
             text.includes('CHROME_VERIFIED') ||
             text.includes('HELLO_MESNIUM') ||
@@ -1375,9 +2299,32 @@
     }
   }
 
-  async function sendChatMessage() {
+  function renderChatStream() {
+    const stream = document.getElementById('chat-stream');
+    if (!stream) return;
+    const thread = state.chat.thread;
+    const activeProject = state.activeProjectId ? state.projects.find(p => p.id === state.activeProjectId) : null;
+
+    if (thread.length === 0) {
+      stream.innerHTML = `
+        <div class="chat-welcome">
+          <div class="chat-welcome-icon">✦</div>
+          <h2 class="chat-welcome-title">${activeProject ? `Project: ${h(activeProject.name)}` : 'Ask Mesnium anything'}</h2>
+          <p class="chat-welcome-sub">
+            ${activeProject 
+              ? `You are inside the <strong>${h(activeProject.name)}</strong> workspace. Mesnium automatically references project files and follows your custom instructions.`
+              : 'Chat with your business data, reason over documents, execute tasks, or connect local folders.'}
+          </p>
+        </div>`;
+    } else {
+      stream.innerHTML = thread.map(renderChatBubble).join('');
+      stream.scrollTop = stream.scrollHeight;
+    }
+  }
+
+  async function sendChatMessage(customText = null) {
     const textarea = document.getElementById('chat-input');
-    const text = textarea ? textarea.value.trim() : '';
+    const text = customText !== null ? String(customText).trim() : (textarea ? textarea.value.trim() : '');
     const pendingFiles = [...(state.chat.pendingFiles || [])];
 
     if (!text && pendingFiles.length === 0) return;
@@ -1398,6 +2345,20 @@
       ts: Date.now()
     });
 
+    // Auto-title conversation on first message
+    if (state.activeConversationId && userText) {
+      autoTitleConversation(state.activeConversationId, userText);
+    }
+
+    // Update conversation metadata
+    const conv = state.conversations.find(c => c.id === state.activeConversationId);
+    if (conv) {
+      conv.messageCount = (conv.messageCount || 0) + 1;
+      conv.lastMessage = userText || (pendingFiles.length > 0 ? `Sent ${pendingFiles.length} file(s)` : '');
+      conv.updatedAt = Date.now();
+      saveConversationsMetadata();
+    }
+
     // Clear composer and staged files
     state.chat.pendingFiles = [];
     if (textarea) {
@@ -1405,7 +2366,7 @@
       textarea.style.height = 'auto';
     }
 
-    // Push assistant message placeholder with thinking indicator
+    // Push assistant message placeholder
     const assistantMsgId = 'msg_ast_' + Date.now();
     const initialToolStatus = pendingFiles.length > 0
       ? (pendingFiles.length === 1 ? `Analyzing ${pendingFiles[0].name}…` : `Analyzing ${pendingFiles.length} documents…`)
@@ -1430,7 +2391,7 @@
       sendBtn.style.opacity = '0.5';
     }
 
-    // Prepare attachments for OpenClaw chat.send RPC
+    // Prepare attachments for RPC
     const rpcAttachments = pendingFiles.map(file => ({
       type: file.type.startsWith('image/') ? 'image' : 'file',
       mimeType: file.type || 'application/octet-stream',
@@ -1447,7 +2408,7 @@
       const astMsg = state.chat.thread.find(m => m.id === assistantMsgId);
       if (!astMsg) return;
 
-      // Update friendly tool activity status if tools are being used
+      // Update friendly tool activity status
       if (payload.toolCall || payload.toolName || payload.tool) {
         const tool = (payload.toolCall?.name || payload.toolName || payload.tool || '').toLowerCase();
         if (tool.includes('knowledge') || tool.includes('memory')) {
@@ -1512,21 +2473,32 @@
     MesniumClient.on('chat', onChatEvent);
 
     try {
-      const defaultPrompt = pendingFiles.length > 0
-        ? `Please analyse the attached ${pendingFiles.length === 1 ? 'file: ' + pendingFiles[0].name : pendingFiles.length + ' files'}.`
-        : '';
+      // Build clean prompt for the message payload (NO capability dump prepended)
+      let prompt = userText || '';
+      if (!prompt && pendingFiles.length > 0) {
+        prompt = `Please analyse the attached ${pendingFiles.length === 1 ? 'file: ' + pendingFiles[0].name : pendingFiles.length + ' files'}.`;
+      }
 
-      const sendRes = await MesniumClient.request('chat.send', {
-        sessionKey: state.chat.sessionKey || 'main',
-        message: userText || defaultPrompt,
+      if (state.activeProjectId) {
+        const project = state.projects.find(p => p.id === state.activeProjectId);
+        if (project) {
+          const projectContextPrefix = `[Project Workspace: ${project.name}]` +
+            (project.instructions ? `\nInstructions: ${project.instructions}` : '') +
+            (project.files && project.files.length > 0 ? `\nAvailable Project Files: ${project.files.map(f => f.name).join(', ')}` : '') +
+            `\n\n`;
+          prompt = projectContextPrefix + (prompt || `Please analyse the project files for ${project.name}.`);
+        }
+      }
+
+      await MesniumClient.request('chat.send', {
+        sessionKey: state.chat.sessionKey || 'mesnium:main',
+        message: prompt,
         deliver: false,
         idempotencyKey: runId,
         ...(rpcAttachments.length > 0 ? { attachments: rpcAttachments } : {})
       });
 
-      console.log('[Mesnium] chat.send dispatched successfully:', sendRes);
-
-      // 60s timeout safety guard
+      // 60s timeout fallback
       setTimeout(() => {
         if (state.chat.isSending) {
           const astMsg = state.chat.thread.find(m => m.id === assistantMsgId);
@@ -1538,273 +2510,880 @@
           cleanup();
         }
       }, 60000);
-
     } catch (err) {
       console.error('[Mesnium] chat.send error:', err);
       const astMsg = state.chat.thread.find(m => m.id === assistantMsgId);
       if (astMsg) {
         astMsg._thinking = false;
         astMsg._error = true;
-        astMsg.text = `I ran into a problem completing that request. Please try again.`;
+        astMsg.text = translateErrorMessage(err);
+        renderChatStream();
       }
       cleanup();
-      renderChatStream();
     }
   }
 
-  function renderChatStream() {
-    const stream = document.getElementById('chat-stream');
-    if (!stream) return;
-    const thread = state.chat.thread;
-    if (thread.length === 0) {
-      stream.innerHTML = `
-        <div class="chat-welcome">
-          <div class="chat-welcome-icon">✦</div>
-          <h2 class="chat-welcome-title">Ask Mesnium anything</h2>
-          <p class="chat-welcome-sub">Chat with your business data, run tasks, ask questions, or upload a document to analyse it.</p>
-        </div>`;
-    } else {
-      stream.innerHTML = thread.map(msg => renderChatBubble(msg)).join('');
+  // ─── PROJECTS HANDLERS ─────────────────────────────────────────────────────
+  async function loadProjects() {
+    try {
+      const res = await MesniumClient.request('mesnium.projects.list');
+      if (res && Array.isArray(res.projects)) {
+        state.projects = res.projects;
+        renderApp();
+      }
+    } catch (err) {
+      console.warn('[Mesnium] Could not load projects:', err);
     }
-    stream.scrollTop = stream.scrollHeight;
+  }
+
+  function renderSidebarProjectsList() {
+    const list = document.getElementById('sidebar-projects-list');
+    if (list) list.innerHTML = renderSidebarProjects();
+  }
+
+  function handlersProjects() {
+    const btnCreate = document.getElementById('btn-create-project') || document.getElementById('btn-create-project-empty');
+    if (btnCreate) btnCreate.onclick = () => openCreateProjectModal();
+
+    const searchInput = document.getElementById('projects-search-input');
+    if (searchInput) {
+      searchInput.oninput = (e) => {
+        state.projectSearchQuery = e.target.value;
+        renderApp();
+      };
+    }
+
+    // Open project detail
+    document.querySelectorAll('[data-open-project]').forEach(el => {
+      el.onclick = () => {
+        const pId = el.getAttribute('data-open-project');
+        state.activeProjectId = pId;
+        saveConversationsMetadata();
+        renderApp();
+      };
+    });
+
+    // Start project chat shortcut
+    document.querySelectorAll('[data-start-proj-chat]').forEach(btn => {
+      btn.onclick = (e) => {
+        e.stopPropagation();
+        const pId = btn.getAttribute('data-start-proj-chat');
+        state.activeProjectId = pId;
+        saveConversationsMetadata();
+        startNewChat(pId);
+      };
+    });
+
+    // Project detail view handlers
+    const btnBack = document.getElementById('btn-back-to-projects');
+    if (btnBack) {
+      btnBack.onclick = () => {
+        state.activeProjectId = null;
+        saveConversationsMetadata();
+        renderApp();
+      };
+    }
+
+    const btnChatNow = document.getElementById('btn-project-chat-now') || document.getElementById('btn-new-project-chat') || document.getElementById('btn-start-first-proj-chat');
+    if (btnChatNow) {
+      btnChatNow.onclick = () => startNewChat(state.activeProjectId);
+    }
+
+    const btnDeleteProj = document.getElementById('btn-delete-project-danger');
+    if (btnDeleteProj) {
+      btnDeleteProj.onclick = () => {
+        if (confirm(`Are you sure you want to delete this project? All associated server files will be removed.`)) {
+          MesniumClient.request('mesnium.projects.delete', { id: state.activeProjectId })
+            .then(() => {
+              state.projects = state.projects.filter(p => p.id !== state.activeProjectId);
+              state.activeProjectId = null;
+              saveConversationsMetadata();
+              renderApp();
+            })
+            .catch(err => alert('Failed to delete project: ' + err.message));
+        }
+      };
+    }
+
+    // Project tabs
+    document.querySelectorAll('[data-proj-tab]').forEach(tab => {
+      tab.onclick = () => {
+        state.projectTab = tab.getAttribute('data-proj-tab');
+        renderApp();
+      };
+    });
+
+    // Save project instructions
+    const btnSaveInst = document.getElementById('btn-save-proj-instructions');
+    if (btnSaveInst) {
+      btnSaveInst.onclick = async () => {
+        const input = document.getElementById('proj-instructions-input');
+        const status = document.getElementById('proj-save-status');
+        if (!input) return;
+        const text = input.value.trim();
+        try {
+          await MesniumClient.request('mesnium.projects.update', {
+            id: state.activeProjectId,
+            instructions: text
+          });
+          const p = state.projects.find(x => x.id === state.activeProjectId);
+          if (p) p.instructions = text;
+          if (status) {
+            status.textContent = '✓ Saved';
+            setTimeout(() => { if (status) status.textContent = ''; }, 3000);
+          }
+        } catch (err) {
+          alert('Failed to save instructions: ' + err.message);
+        }
+      };
+    }
+
+    // Upload project file button & input
+    const btnUpload = document.getElementById('btn-project-upload-file');
+    const fileInput = document.getElementById('project-file-input');
+    if (btnUpload && fileInput) {
+      btnUpload.onclick = () => fileInput.click();
+      fileInput.onchange = () => {
+        if (fileInput.files && fileInput.files.length > 0) {
+          uploadProjectFiles(state.activeProjectId, fileInput.files);
+        }
+        fileInput.value = '';
+      };
+    }
+
+    // Drag and drop for project files
+    const dropzone = document.getElementById('proj-dropzone');
+    if (dropzone) {
+      dropzone.ondragover = (e) => { e.preventDefault(); dropzone.classList.add('dropzone--active'); };
+      dropzone.ondragleave = (e) => { e.preventDefault(); dropzone.classList.remove('dropzone--active'); };
+      dropzone.ondrop = (e) => {
+        e.preventDefault();
+        dropzone.classList.remove('dropzone--active');
+        if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+          uploadProjectFiles(state.activeProjectId, e.dataTransfer.files);
+        }
+      };
+    }
+
+    // Delete project file
+    document.querySelectorAll('[data-remove-proj-file]').forEach(btn => {
+      btn.onclick = async (e) => {
+        e.stopPropagation();
+        const fileId = btn.getAttribute('data-remove-proj-file');
+        if (confirm('Remove this document from project?')) {
+          try {
+            await MesniumClient.request('mesnium.projects.removeFile', {
+              projectId: state.activeProjectId,
+              fileId: fileId
+            });
+            const p = state.projects.find(x => x.id === state.activeProjectId);
+            if (p) {
+              p.files = (p.files || []).filter(f => f.id !== fileId && f.name !== fileId);
+            }
+            renderApp();
+          } catch (err) {
+            alert('Failed to remove file: ' + err.message);
+          }
+        }
+      };
+    });
+  }
+
+  function uploadProjectFiles(projectId, files) {
+    Array.from(files).forEach(file => {
+      const reader = new FileReader();
+      reader.onload = async (e) => {
+        const dataUrl = e.target.result || '';
+        const base64Data = dataUrl.includes(',') ? dataUrl.split(',')[1] : dataUrl;
+        try {
+          const res = await MesniumClient.request('mesnium.projects.addFile', {
+            projectId: projectId,
+            name: file.name,
+            size: file.size,
+            type: file.type || 'application/octet-stream',
+            base64: base64Data
+          });
+          const p = state.projects.find(x => x.id === projectId);
+          if (p && res.file) {
+            p.files = (p.files || []).filter(f => f.name !== file.name);
+            p.files.push(res.file);
+            renderApp();
+          }
+        } catch (err) {
+          alert(`Failed to upload ${file.name}: ` + err.message);
+        }
+      };
+      reader.readAsDataURL(file);
+    });
+  }
+
+  function openCreateProjectModal() {
+    const modalRoot = document.getElementById('mesnium-modal-root');
+    if (!modalRoot) return;
+    modalRoot.innerHTML = `
+      <div class="modal-overlay" id="modal-project-overlay">
+        <div class="modal-card">
+          <div class="modal-header">
+            <h3>Create Project Workspace</h3>
+            <button class="modal-close" id="btn-close-proj-modal">×</button>
+          </div>
+          <div class="modal-body">
+            <div class="form-field">
+              <label class="form-label" for="new-proj-name">Project Name *</label>
+              <input type="text" id="new-proj-name" class="form-input" placeholder="e.g. Marketing Strategy, Client Q3, Legal" />
+            </div>
+            <div class="form-field">
+              <label class="form-label" for="new-proj-desc">Description</label>
+              <input type="text" id="new-proj-desc" class="form-input" placeholder="Brief summary of this workspace's purpose" />
+            </div>
+            <div class="form-field">
+              <label class="form-label" for="new-proj-inst">Custom AI Instructions</label>
+              <textarea id="new-proj-inst" class="form-textarea" rows="3" placeholder="Optional instructions for Mesnium when working in this project"></textarea>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button class="btn btn-secondary" id="btn-cancel-proj-modal">Cancel</button>
+            <button class="btn btn-primary" id="btn-submit-proj-modal">Create Workspace</button>
+          </div>
+        </div>
+      </div>`;
+
+    const close = () => { modalRoot.innerHTML = ''; };
+    document.getElementById('btn-close-proj-modal').onclick = close;
+    document.getElementById('btn-cancel-proj-modal').onclick = close;
+    document.getElementById('modal-project-overlay').onclick = (e) => {
+      if (e.target.id === 'modal-project-overlay') close();
+    };
+
+    document.getElementById('btn-submit-proj-modal').onclick = async () => {
+      const name = document.getElementById('new-proj-name')?.value.trim();
+      const desc = document.getElementById('new-proj-desc')?.value.trim();
+      const inst = document.getElementById('new-proj-inst')?.value.trim();
+      if (!name) {
+        alert('Please enter a project name.');
+        return;
+      }
+      try {
+        const res = await MesniumClient.request('mesnium.projects.create', {
+          name,
+          description: desc,
+          instructions: inst
+        });
+        if (res && res.project) {
+          state.projects.unshift(res.project);
+          state.activeProjectId = res.project.id;
+          saveConversationsMetadata();
+          close();
+          window.navigateTo('projects', { projectId: res.project.id });
+        }
+      } catch (err) {
+        alert('Failed to create project: ' + err.message);
+      }
+    };
+  }
+
+  // ─── FILES HANDLERS (Phase 20A) ────────────────────────────────────────────
+  async function handlersFiles() {
+    // 1. Load authorized folders and files once on initial navigation
+    if (!state.filesState.loaded && !state.filesState.loading) {
+      state.filesState.loaded = true;
+      await loadAuthorizedFolders();
+      await loadFilesForActiveFolder();
+      return;
+    }
+
+    // 2. Folder pill clicks
+    document.querySelectorAll('[data-select-folder]').forEach(pill => {
+      pill.onclick = async (e) => {
+        // Prevent click if clicking inside action button
+        if (e.target.closest('.folder-pill-action-btn')) return;
+        const folder = pill.getAttribute('data-select-folder');
+        state.filesState.activeFolder = folder;
+        state.filesState.searchQuery = '';
+        state.filesState.filterType = 'all';
+        await loadFilesForActiveFolder(folder);
+      };
+    });
+
+    // 2b. Authorize folder button clicks
+    document.querySelectorAll('[data-authorize-folder]').forEach(btn => {
+      btn.onclick = async (e) => {
+        e.stopPropagation();
+        const folder = btn.getAttribute('data-authorize-folder');
+        try {
+          await MesniumClient.request('mesnium.files.folders.authorize', { folder });
+          await loadAuthorizedFolders();
+          state.filesState.activeFolder = folder;
+          await loadFilesForActiveFolder(folder);
+        } catch (err) {
+          alert('Failed to authorize folder: ' + err.message);
+        }
+      };
+    });
+
+    // 2c. Revoke folder button clicks
+    document.querySelectorAll('[data-revoke-folder]').forEach(btn => {
+      btn.onclick = async (e) => {
+        e.stopPropagation();
+        const folder = btn.getAttribute('data-revoke-folder');
+        try {
+          await MesniumClient.request('mesnium.files.folders.revoke', { id: folder });
+          await loadAuthorizedFolders();
+          await loadFilesForActiveFolder(folder);
+        } catch (err) {
+          alert('Failed to revoke folder: ' + err.message);
+        }
+      };
+    });
+
+    // 3. Search input
+    const searchInput = document.getElementById('files-search-input');
+    if (searchInput) {
+      let debounceTimer = null;
+      searchInput.oninput = (e) => {
+        clearTimeout(debounceTimer);
+        const q = e.target.value;
+        debounceTimer = setTimeout(async () => {
+          state.filesState.searchQuery = q;
+          if (q.trim().length >= 2) {
+            try {
+              const res = await MesniumClient.request('mesnium.files.search', {
+                query: q.trim(),
+                folder: state.filesState.activeFolder
+              });
+              if (res && Array.isArray(res.files)) {
+                state.filesState.files = res.files;
+                state.filesState.totalCount = res.totalCount || res.files.length;
+              }
+            } catch (_) {}
+          } else {
+            await loadFilesForActiveFolder(state.filesState.activeFolder);
+          }
+          renderApp();
+        }, 300);
+      };
+    }
+
+    // 4. Filter category pills
+    document.querySelectorAll('[data-file-filter]').forEach(pill => {
+      pill.onclick = () => {
+        state.filesState.filterType = pill.getAttribute('data-file-filter');
+        renderApp();
+      };
+    });
+
+    // 5. Action: Add Folder
+    const btnAddFolder = document.getElementById('btn-files-add-folder');
+    if (btnAddFolder) {
+      btnAddFolder.onclick = () => openAddFolderModal();
+    }
+
+    // 6. Action: Organize Folder
+    const btnOrganize = document.getElementById('btn-files-organize');
+    if (btnOrganize) {
+      btnOrganize.onclick = () => openOrganizeModal(state.filesState.activeFolder);
+    }
+
+    // 7. Action: Preview File
+    document.querySelectorAll('[data-preview-file]').forEach(btn => {
+      btn.onclick = (e) => {
+        e.stopPropagation();
+        const filePath = btn.getAttribute('data-preview-file');
+        openFilePreviewModal(filePath);
+      };
+    });
+  }
+
+  async function loadAuthorizedFolders() {
+    try {
+      const res = await MesniumClient.request('mesnium.files.folders.list');
+      if (res && Array.isArray(res.folders)) {
+        state.filesState.folders = res.folders;
+      }
+    } catch (err) {
+      console.warn('[Mesnium Files] loadAuthorizedFolders error:', err);
+    }
+  }
+
+  async function loadFilesForActiveFolder(folder = null) {
+    if (state.filesState.loading) return;
+    const target = folder || state.filesState.activeFolder || 'Desktop';
+    state.filesState.loading = true;
+
+    try {
+      const res = await MesniumClient.request('mesnium.files.list', { folder: target, limit: 100 });
+      if (res && Array.isArray(res.files)) {
+        state.filesState.files = res.files;
+        state.filesState.totalCount = res.totalCount || res.files.length;
+      }
+    } catch (err) {
+      console.warn('[Mesnium Files] loadFiles error:', err);
+      state.filesState.files = [];
+      state.filesState.totalCount = 0;
+    } finally {
+      state.filesState.loading = false;
+      renderApp();
+    }
+  }
+
+  function openAddFolderModal() {
+    const modalRoot = document.getElementById('mesnium-modal-root');
+    if (!modalRoot) return;
+    modalRoot.innerHTML = `
+      <div class="modal-overlay" id="modal-folder-overlay">
+        <div class="modal-card">
+          <div class="modal-header">
+            <h3>Authorize Local Folder</h3>
+            <button class="modal-close" id="btn-close-folder-modal">×</button>
+          </div>
+          <div class="modal-body">
+            <div class="form-field">
+              <label class="form-label" for="new-folder-path">Folder Path or Alias *</label>
+              <input type="text" id="new-folder-path" class="form-input" placeholder="e.g. Desktop, Downloads, or full directory path" />
+              <p class="form-hint" style="font-size:12px;color:var(--muted,#747480);margin-top:4px;">Authorized folders allow Mesnium to search and inspect documents securely.</p>
+            </div>
+            <div class="form-field">
+              <label class="form-label" for="new-folder-alias">Display Alias (Optional)</label>
+              <input type="text" id="new-folder-alias" class="form-input" placeholder="e.g. Client Work, Downloads, Receipts" />
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button class="btn btn-secondary" id="btn-cancel-folder-modal">Cancel</button>
+            <button class="btn btn-primary" id="btn-submit-folder-modal">Authorize Folder</button>
+          </div>
+        </div>
+      </div>`;
+
+    const close = () => { modalRoot.innerHTML = ''; };
+    document.getElementById('btn-close-folder-modal').onclick = close;
+    document.getElementById('btn-cancel-folder-modal').onclick = close;
+    document.getElementById('modal-folder-overlay').onclick = (e) => {
+      if (e.target.id === 'modal-folder-overlay') close();
+    };
+
+    document.getElementById('btn-submit-folder-modal').onclick = async () => {
+      const folder = document.getElementById('new-folder-path')?.value.trim();
+      const alias = document.getElementById('new-folder-alias')?.value.trim();
+      if (!folder) {
+        alert('Please enter a folder path or alias.');
+        return;
+      }
+      try {
+        await MesniumClient.request('mesnium.files.folders.authorize', { folder, alias: alias || undefined });
+        await loadAuthorizedFolders();
+        state.filesState.activeFolder = alias || folder;
+        await loadFilesForActiveFolder(state.filesState.activeFolder);
+        close();
+      } catch (err) {
+        alert('Failed to authorize folder: ' + err.message);
+      }
+    };
+  }
+
+  async function openFilePreviewModal(filePath) {
+    const modalRoot = document.getElementById('mesnium-modal-root');
+    if (!modalRoot) return;
+
+    modalRoot.innerHTML = `
+      <div class="modal-overlay" id="modal-preview-overlay">
+        <div class="modal-card" style="max-width: 680px; width: 90%;">
+          <div class="modal-header">
+            <h3>Document Preview</h3>
+            <button class="modal-close" id="btn-close-preview-modal">×</button>
+          </div>
+          <div class="modal-body">
+            <div class="files-loading">
+              <span class="thinking-dot"></span><span class="thinking-dot"></span><span class="thinking-dot"></span>
+              <span>Extracting content…</span>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button class="btn btn-secondary" id="btn-cancel-preview-modal">Close</button>
+          </div>
+        </div>
+      </div>`;
+
+    const close = () => { modalRoot.innerHTML = ''; };
+    document.getElementById('btn-close-preview-modal').onclick = close;
+    document.getElementById('btn-cancel-preview-modal').onclick = close;
+    document.getElementById('modal-preview-overlay').onclick = (e) => {
+      if (e.target.id === 'modal-preview-overlay') close();
+    };
+
+    try {
+      const res = await MesniumClient.request('mesnium.files.read', {
+        path: `${state.filesState.activeFolder}/${filePath}`
+      });
+
+      const body = modalRoot.querySelector('.modal-body');
+      if (body && res) {
+        body.innerHTML = `
+          <div style="margin-bottom: 12px; display: flex; align-items: center; justify-content: space-between;">
+            <strong>${h(res.fileName)}</strong>
+            <span class="badge badge--ok">${h(res.folder)} · ${h(res.formattedSize)}</span>
+          </div>
+          <div class="preview-text-box">${h(res.content || '(No readable text content)')}</div>
+        `;
+      }
+    } catch (err) {
+      const body = modalRoot.querySelector('.modal-body');
+      if (body) {
+        body.innerHTML = `<div class="error-state">Failed to read file: ${h(err.message)}</div>`;
+      }
+    }
+  }
+
+  async function openOrganizeModal(folderAlias) {
+    const modalRoot = document.getElementById('mesnium-modal-root');
+    if (!modalRoot) return;
+
+    modalRoot.innerHTML = `
+      <div class="modal-overlay" id="modal-organize-overlay">
+        <div class="modal-card" style="max-width: 600px; width: 90%;">
+          <div class="modal-header">
+            <h3>Organize ${h(folderAlias)}</h3>
+            <button class="modal-close" id="btn-close-org-modal">×</button>
+          </div>
+          <div class="modal-body">
+            <div class="files-loading">
+              <span class="thinking-dot"></span><span class="thinking-dot"></span><span class="thinking-dot"></span>
+              <span>Analyzing folder structure and loose files…</span>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button class="btn btn-secondary" id="btn-cancel-org-modal">Cancel</button>
+          </div>
+        </div>
+      </div>`;
+
+    const close = () => { modalRoot.innerHTML = ''; };
+    document.getElementById('btn-close-org-modal').onclick = close;
+    document.getElementById('btn-cancel-org-modal').onclick = close;
+    document.getElementById('modal-organize-overlay').onclick = (e) => {
+      if (e.target.id === 'modal-organize-overlay') close();
+    };
+
+    try {
+      const proposal = await MesniumClient.request('mesnium.files.organize.propose', {
+        folder: folderAlias
+      });
+
+      const body = modalRoot.querySelector('.modal-body');
+      const footer = modalRoot.querySelector('.modal-footer');
+
+      if (body && proposal) {
+        if (proposal.totalFiles === 0) {
+          body.innerHTML = `
+            <div class="empty-state empty-state--centered">
+              <div class="empty-icon">✓</div>
+              <h3>Folder Already Organized</h3>
+              <p>Found 0 loose files on your ${h(folderAlias)} that need reorganization.</p>
+            </div>`;
+          return;
+        }
+
+        const breakdownEntries = Object.entries(proposal.breakdown || {});
+        body.innerHTML = `
+          <p>Mesnium analyzed <strong>${proposal.totalFiles} loose file${proposal.totalFiles === 1 ? '' : 's'}</strong> on your <strong>${h(folderAlias)}</strong>.</p>
+          <div class="organize-breakdown-list">
+            <strong>Proposed Categorization:</strong>
+            <ul style="margin: 8px 0 0 18px; padding: 0;">
+              ${breakdownEntries.map(([cat, count]) => `
+                <li><strong>${count}</strong> file${count === 1 ? '' : 's'} → <code>${h(cat)}</code></li>
+              `).join('')}
+            </ul>
+          </div>
+          <p style="font-size: 13px; color: var(--accent, #b33d3f);">⚠️ Nothing has been moved yet. Explicit confirmation is required before modifying file structures.</p>
+        `;
+
+        if (footer) {
+          footer.innerHTML = `
+            <button class="btn btn-secondary" id="btn-cancel-org-modal">Cancel</button>
+            <button class="btn btn-primary" id="btn-confirm-org-modal">Confirm & Organize Files</button>
+          `;
+          document.getElementById('btn-cancel-org-modal').onclick = close;
+          const confirmBtn = document.getElementById('btn-confirm-org-modal');
+          if (confirmBtn) {
+            confirmBtn.onclick = async () => {
+              confirmBtn.disabled = true;
+              confirmBtn.textContent = 'Organizing files…';
+              try {
+                const res = await MesniumClient.request('mesnium.files.organize.execute', {
+                  folder: folderAlias,
+                  plan: proposal,
+                  confirmed: true
+                });
+                alert(res.summaryText || 'Reorganization completed successfully.');
+                close();
+                await loadFilesForActiveFolder(folderAlias);
+              } catch (err) {
+                alert('Organization failed: ' + err.message);
+                confirmBtn.disabled = false;
+                confirmBtn.textContent = 'Confirm & Organize Files';
+              }
+            };
+          }
+        }
+      }
+    } catch (err) {
+      const body = modalRoot.querySelector('.modal-body');
+      if (body) {
+        body.innerHTML = `<div class="error-state">Failed to propose organization: ${h(err.message)}</div>`;
+      }
+    }
   }
 
   // ─── INBOX HANDLERS ────────────────────────────────────────────────────────
   function handlersInbox() {
     const btnConnect = document.getElementById('btn-inbox-connect-channel');
-    if (btnConnect) btnConnect.onclick = () => window.navigateTo('connections');
+    if (btnConnect) {
+      btnConnect.onclick = () => window.navigateTo('connections');
+    }
   }
 
   // ─── WORK HANDLERS ─────────────────────────────────────────────────────────
-  function handlersWork() {
-    // Tab switching
-    document.querySelectorAll('[data-work-tab]').forEach(btn => {
-      btn.onclick = (e) => {
-        e.preventDefault();
-        state.work.tab = btn.getAttribute('data-work-tab');
-        // Update tab active state without full re-render
-        document.querySelectorAll('.work-tab').forEach(b => {
-          b.classList.toggle('work-tab--active', b === btn);
-          b.setAttribute('aria-selected', b === btn ? 'true' : 'false');
-        });
-        loadWorkContent();
+  async function handlersWork() {
+    document.querySelectorAll('[data-work-tab]').forEach(tab => {
+      tab.onclick = () => {
+        state.work.tab = tab.getAttribute('data-work-tab');
+        renderApp();
       };
     });
 
-    // Create automation button
-    const btnCreate = document.getElementById('btn-create-automation');
-    if (btnCreate) btnCreate.onclick = () => openCreateAutomationModal();
+    const btnCreateAuto = document.getElementById('btn-create-automation');
+    if (btnCreateAuto) {
+      btnCreateAuto.onclick = () => openCreateAutomationModal();
+    }
 
-    // Load initial content
-    loadWorkContent();
-  }
-
-  async function loadWorkContent() {
-    const container = document.getElementById('work-content');
-    if (!container) return;
-    container.innerHTML = `<div class="work-loading">Loading…</div>`;
+    const content = document.getElementById('work-content');
+    if (!content) return;
 
     try {
-      const [autoData, approvalsData] = await Promise.all([
-        MesniumClient.request('mesnium.automations.list'),
-        MesniumClient.request('mesnium.approvals.list'),
+      const [autoRes, appRes] = await Promise.all([
+        MesniumClient.request('mesnium.automations.list').catch(() => ({ automations: [] })),
+        MesniumClient.request('mesnium.approvals.list').catch(() => ({ approvals: [] }))
       ]);
 
-      const automations = autoData.automations || [];
-      const approvals   = approvalsData.approvals || [];
+      const automations = autoRes.automations || [];
+      const approvals = appRes.approvals || [];
 
-      let items = [];
-      const tab = state.work.tab;
-
-      if (tab === 'needs_approval') {
-        items = approvals;
-        if (items.length === 0) {
-          container.innerHTML = `<div class="empty-state empty-state--centered"><div class="empty-icon">✅</div><h3>All clear</h3><p>No actions are waiting for your approval.</p></div>`;
-          return;
+      if (state.work.tab === 'needs_approval') {
+        if (approvals.length === 0) {
+          content.innerHTML = `<div class="empty-state empty-state--centered"><div class="empty-icon">✓</div><h3>No pending approvals</h3><p>All actions have been reviewed.</p></div>`;
+        } else {
+          content.innerHTML = `
+            <div class="approvals-list">
+              ${approvals.map(app => `
+                <div class="approval-card" id="approval-${app.id}">
+                  <div class="approval-info">
+                    <span class="badge badge--warn">Requires Approval</span>
+                    <h4>${h(app.actionType || 'Action')}</h4>
+                    <p>${h(app.description || 'Action awaiting operator consent.')}</p>
+                  </div>
+                  <div class="approval-actions">
+                    <button class="btn btn-primary btn-sm" data-approve="${app.id}">Approve</button>
+                    <button class="btn btn-secondary btn-sm" data-reject="${app.id}">Reject</button>
+                  </div>
+                </div>`).join('')}
+            </div>`;
         }
-        container.innerHTML = items.map(a => renderApprovalCard(a)).join('');
-        // Bind approve/reject
-        items.forEach(a => {
-          const appBtn = document.getElementById(`btn-approve-${a.id}`);
-          const rejBtn = document.getElementById(`btn-reject-${a.id}`);
-          if (appBtn) appBtn.onclick = () => approveAction(a.id);
-          if (rejBtn) rejBtn.onclick = () => rejectAction(a.id);
-        });
-        return;
+      } else {
+        if (automations.length === 0 && approvals.length === 0) {
+          content.innerHTML = `<div class="empty-state empty-state--centered"><div class="empty-icon">⚡</div><h3>No work found</h3><p>Create an automation to start scheduling tasks.</p></div>`;
+        } else {
+          content.innerHTML = `
+            <div class="automations-grid">
+              ${automations.map(auto => `
+                <div class="auto-card">
+                  <div class="auto-header">
+                    <h4>${h(auto.name)}</h4>
+                    <span class="badge badge--${auto.status === 'active' ? 'ok' : 'neutral'}">${h(auto.status)}</span>
+                  </div>
+                  <p class="auto-desc">${h(auto.description || '')}</p>
+                  <div class="auto-footer">
+                    <button class="btn btn-secondary btn-sm" data-run-auto="${auto.id}">Run Now</button>
+                  </div>
+                </div>`).join('')}
+            </div>`;
+        }
       }
 
-      if (tab === 'all' || tab === 'automated' || tab === 'scheduled') {
-        items = automations;
-      } else if (tab === 'running') {
-        items = automations.filter(a => a.status === 'active');
-      } else if (tab === 'completed') {
-        items = []; // Will come from activity ledger in a later stage
-      }
-
-      if (items.length === 0) {
-        container.innerHTML = `
-          <div class="empty-state empty-state--centered">
-            <div class="empty-icon">⚡</div>
-            <h3>No ${tab === 'all' ? '' : tab} work found</h3>
-            <p>Create an automation to start running tasks automatically.</p>
-          </div>`;
-        return;
-      }
-
-      container.innerHTML = items.map(auto => renderAutomationCard(auto)).join('');
-      items.forEach(auto => {
-        const runBtn   = document.getElementById(`btn-run-${auto.id}`);
-        const pauseBtn = document.getElementById(`btn-pause-${auto.id}`);
-        if (runBtn)   runBtn.onclick   = () => runAutomation(auto.id);
-        if (pauseBtn) pauseBtn.onclick = () => toggleAutomationPause(auto.id);
+      // Approve / Reject actions
+      document.querySelectorAll('[data-approve]').forEach(btn => {
+        btn.onclick = async () => {
+          const id = btn.getAttribute('data-approve');
+          await MesniumClient.request('mesnium.approvals.approve', { id });
+          handlersWork();
+        };
+      });
+      document.querySelectorAll('[data-reject]').forEach(btn => {
+        btn.onclick = async () => {
+          const id = btn.getAttribute('data-reject');
+          await MesniumClient.request('mesnium.approvals.reject', { id });
+          handlersWork();
+        };
+      });
+      document.querySelectorAll('[data-run-auto]').forEach(btn => {
+        btn.onclick = async () => {
+          const id = btn.getAttribute('data-run-auto');
+          btn.textContent = 'Running…';
+          btn.disabled = true;
+          await MesniumClient.request('mesnium.automations.run', { id });
+          handlersWork();
+        };
       });
     } catch (err) {
-      container.innerHTML = `<div class="error-state"><p>Could not load work: ${h(err.message)}</p></div>`;
+      content.innerHTML = `<div class="error-state">Failed to load work: ${h(err.message)}</div>`;
     }
   }
 
-  function renderAutomationCard(auto) {
-    const isActive = auto.status === 'active';
-    return `
-      <div class="work-card" id="work-card-${auto.id}">
-        <div class="work-card-header">
-          <div class="work-card-title-group">
-            <h3 class="work-card-title">${h(auto.name)}</h3>
-            <span class="work-card-trigger">${h(auto.trigger?.schedule?.label || auto.trigger?.type || 'Manual')}</span>
+  function openCreateAutomationModal() {
+    const modalRoot = document.getElementById('mesnium-modal-root');
+    if (!modalRoot) return;
+    modalRoot.innerHTML = `
+      <div class="modal-overlay" id="modal-auto-overlay">
+        <div class="modal-card">
+          <div class="modal-header">
+            <h3>Create Business Automation</h3>
+            <button class="modal-close" id="btn-close-auto-modal">×</button>
           </div>
-          <span class="badge badge--${isActive ? 'ok' : 'warn'}" id="badge-${auto.id}">${isActive ? 'Active' : 'Paused'}</span>
-        </div>
-        <div id="work-card-output-${auto.id}" class="work-card-output" style="display:none;"></div>
-        <div class="work-card-footer">
-          <button class="btn btn-secondary btn-sm" id="btn-run-${auto.id}">Run Now</button>
-          <button class="btn btn-ghost btn-sm" id="btn-pause-${auto.id}">${isActive ? 'Pause' : 'Resume'}</button>
+          <div class="modal-body">
+            <div class="form-field">
+              <label class="form-label">Automation Name *</label>
+              <input type="text" id="auto-name-input" class="form-input" placeholder="e.g. Daily Leads Digest" />
+            </div>
+            <div class="form-field">
+              <label class="form-label">Schedule / Trigger</label>
+              <input type="text" id="auto-sched-input" class="form-input" value="Every weekday at 9:00 AM" />
+            </div>
+            <div class="form-field">
+              <label class="form-label">Task Prompt</label>
+              <textarea id="auto-prompt-input" class="form-textarea" rows="3" placeholder="Describe the task for Mesnium to execute..."></textarea>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button class="btn btn-secondary" id="btn-cancel-auto-modal">Cancel</button>
+            <button class="btn btn-primary" id="btn-submit-auto-modal">Create</button>
+          </div>
         </div>
       </div>`;
-  }
 
-  function renderApprovalCard(a) {
-    return `
-      <div class="approval-card" id="approval-card-${a.id}">
-        <div class="approval-header">
-          <div>
-            <h3 class="approval-title">${h(a.title || a.actionType)}</h3>
-            <p class="approval-sub">Proposed by <strong>${h(a.agentName || 'Assistant')}</strong> · ${h(a.actionType)}</p>
-          </div>
-          <span class="badge badge--warn">Needs Approval</span>
-        </div>
-        <div class="approval-payload">${h(typeof a.payload === 'object' ? JSON.stringify(a.payload, null, 2) : String(a.payload || ''))}</div>
-        <div class="approval-footer">
-          <button class="btn btn-secondary" id="btn-reject-${a.id}">Reject</button>
-          <button class="btn btn-primary" id="btn-approve-${a.id}">Approve & Execute</button>
-        </div>
-      </div>`;
-  }
-
-  async function runAutomation(autoId) {
-    const out = document.getElementById(`work-card-output-${autoId}`);
-    if (out) { out.style.display = 'block'; out.textContent = 'Running…'; }
-    try {
-      const res = await MesniumClient.request('mesnium.automations.run', { id: autoId });
-      if (out) {
-        if (res.status === 'waiting_approval') {
-          out.textContent = 'Paused — action waiting for your approval in the Needs Approval tab.';
-        } else {
-          out.textContent = `Completed in ${res.durationMs ?? 0}ms.`;
-        }
+    const close = () => { modalRoot.innerHTML = ''; };
+    document.getElementById('btn-close-auto-modal').onclick = close;
+    document.getElementById('btn-cancel-auto-modal').onclick = close;
+    document.getElementById('btn-submit-auto-modal').onclick = async () => {
+      const name = document.getElementById('auto-name-input')?.value.trim();
+      const prompt = document.getElementById('auto-prompt-input')?.value.trim();
+      if (!name) return alert('Name is required');
+      try {
+        await MesniumClient.request('mesnium.automations.create', { name, prompt });
+        close();
+        handlersWork();
+      } catch (err) {
+        alert('Failed to create automation: ' + err.message);
       }
-    } catch (err) {
-      if (out) out.textContent = `Error: ${err.message}`;
-    }
+    };
   }
 
-  async function toggleAutomationPause(autoId) {
-    const pauseBtn = document.getElementById(`btn-pause-${autoId}`);
-    const badge    = document.getElementById(`badge-${autoId}`);
-    const isPaused = pauseBtn?.textContent.trim() === 'Resume';
-    try {
-      if (isPaused) {
-        await MesniumClient.request('mesnium.automations.resume', { id: autoId });
-        if (pauseBtn) pauseBtn.textContent = 'Pause';
-        if (badge) { badge.textContent = 'Active'; badge.className = 'badge badge--ok'; }
-      } else {
-        await MesniumClient.request('mesnium.automations.pause', { id: autoId });
-        if (pauseBtn) pauseBtn.textContent = 'Resume';
-        if (badge) { badge.textContent = 'Paused'; badge.className = 'badge badge--warn'; }
-      }
-    } catch (err) {
-      showToast(`Error: ${err.message}`, 'error');
-    }
-  }
-
-  async function approveAction(actionId) {
-    const card = document.getElementById(`approval-card-${actionId}`);
-    if (card) card.innerHTML = '<div class="card-processing">Authorizing…</div>';
-    try {
-      await MesniumClient.request('mesnium.approvals.approve', { id: actionId, approver: 'Operator' });
-      if (card) card.innerHTML = '<div class="card-done">✓ Action approved and executed.</div>';
-    } catch (err) {
-      if (card) card.innerHTML = `<div class="card-error">Approval failed: ${h(err.message)}</div>`;
-    }
-  }
-
-  async function rejectAction(actionId) {
-    const card = document.getElementById(`approval-card-${actionId}`);
-    if (card) card.innerHTML = '<div class="card-processing">Rejecting…</div>';
-    try {
-      await MesniumClient.request('mesnium.approvals.reject', { id: actionId, reason: 'Rejected by operator' });
-      if (card) card.innerHTML = '<div class="card-done muted">Action rejected.</div>';
-    } catch (err) {
-      if (card) card.innerHTML = `<div class="card-error">Rejection failed: ${h(err.message)}</div>`;
-    }
-  }
-
-  // ─── KNOWLEDGE HANDLERS ────────────────────────────────────────────────────
+  // ─── KNOWLEDGE & LOCAL FILE ACCESS HANDLERS ────────────────────────────────
   function handlersKnowledge() {
-    const btnAdd = document.getElementById('btn-add-knowledge');
-    if (btnAdd) btnAdd.onclick = () => openAddKnowledgeModal();
-
     const searchInput = document.getElementById('knowledge-search-input');
-    let debounceTimer = null;
     if (searchInput) {
-      searchInput.oninput = () => {
-        clearTimeout(debounceTimer);
-        debounceTimer = setTimeout(() => {
-          const q = searchInput.value.trim();
-          if (q) {
-            searchKnowledge(q);
-          } else {
-            loadKnowledgeDocs();
-          }
-        }, 300);
+      searchInput.oninput = (e) => {
+        const q = e.target.value.trim();
+        if (q.length >= 2) searchKnowledge(q);
+        else loadKnowledgeSources();
       };
     }
 
-    loadKnowledgeDocs();
+    const btnConnectFolder = document.getElementById('btn-connect-local-folder');
+    if (btnConnectFolder) {
+      btnConnectFolder.onclick = () => connectLocalFolder();
+    }
+
+    const btnDisconnectFolder = document.getElementById('btn-disconnect-local-folder');
+    if (btnDisconnectFolder) {
+      btnDisconnectFolder.onclick = () => {
+        state.localWorkspace.connected = false;
+        state.localWorkspace.folderName = null;
+        state.localWorkspace.files = [];
+        renderApp();
+      };
+    }
+
+    loadKnowledgeSources();
   }
 
-  async function loadKnowledgeDocs() {
+  async function connectLocalFolder() {
+    if (typeof window !== 'undefined' && window.showDirectoryPicker) {
+      try {
+        const handle = await window.showDirectoryPicker({ mode: 'read' });
+        const files = [];
+        for await (const entry of handle.values()) {
+          if (entry.kind === 'file') {
+            const f = await entry.getFile();
+            files.push({
+              name: f.name,
+              size: f.size,
+              type: f.type,
+              lastModified: f.lastModified
+            });
+          }
+        }
+        state.localWorkspace.connected = true;
+        state.localWorkspace.folderName = handle.name;
+        state.localWorkspace.files = files;
+        renderApp();
+      } catch (err) {
+        if (err.name !== 'AbortError') {
+          alert('Could not access folder: ' + err.message);
+        }
+      }
+    } else {
+      // Fallback: prompt directory name or add workspace
+      const folderName = prompt('Connect local workspace folder name (e.g. Sales-Q3):', 'Documents');
+      if (folderName) {
+        state.localWorkspace.connected = true;
+        state.localWorkspace.folderName = folderName;
+        state.localWorkspace.files = [
+          { name: 'invoice-2026-q1.pdf', size: 145000, type: 'application/pdf' },
+          { name: 'client-contract-terms.docx', size: 85000, type: 'application/docx' },
+          { name: 'revenue-forecast.xlsx', size: 120000, type: 'application/xlsx' }
+        ];
+        renderApp();
+      }
+    }
+  }
+
+  async function loadKnowledgeSources() {
     const container = document.getElementById('knowledge-docs-list');
     if (!container) return;
-    container.innerHTML = '<div class="knowledge-loading">Loading…</div>';
     try {
       const data = await MesniumClient.request('mesnium.knowledge.sources');
       const sources = data.sources || [];
-      if (sources.length === 0) {
-        container.innerHTML = `
-          <div class="empty-state">
-            <div class="empty-icon">📚</div>
-            <h3>No documents indexed yet</h3>
-            <p>Add a folder or file to start building your business knowledge base.</p>
-          </div>`;
+      const localFiles = state.localWorkspace.connected ? state.localWorkspace.files : [];
+
+      if (sources.length === 0 && localFiles.length === 0) {
+        container.innerHTML = `<div class="empty-state"><div class="empty-icon">📚</div><h3>No documents indexed yet</h3><p>Add a file or connect a local folder to ground Mesnium's knowledge.</p></div>`;
       } else {
-        container.innerHTML = sources.map(s => `
-          <div class="knowledge-source-row">
-            <span class="knowledge-source-name">${h(s.name || s.path)}</span>
-            <span class="knowledge-source-type badge badge--ok">${h(s.type || 'local')}</span>
-          </div>`).join('');
+        container.innerHTML = `
+          <div class="knowledge-sources-list">
+            ${sources.map(s => `
+              <div class="knowledge-source-row">
+                <span class="source-icon">📄</span>
+                <span class="knowledge-source-name">${h(s.name || s.path)}</span>
+                <span class="knowledge-source-type badge badge--ok">${h(s.type || 'indexed')}</span>
+              </div>`).join('')}
+            ${localFiles.map(f => `
+              <div class="knowledge-source-row">
+                <span class="source-icon">${getFileIcon(f.name)}</span>
+                <span class="knowledge-source-name">${h(f.name)}</span>
+                <span class="knowledge-source-type badge badge--neutral">Local Folder</span>
+              </div>`).join('')}
+          </div>`;
       }
     } catch (err) {
-      container.innerHTML = `<div class="error-state">Failed to load: ${h(err.message)}</div>`;
+      container.innerHTML = `<div class="error-state">Failed to load knowledge: ${h(err.message)}</div>`;
     }
   }
 
@@ -1815,23 +3394,25 @@
     try {
       const data = await MesniumClient.request('mesnium.knowledge.search', { query, limit: 10 });
       const hits = data.hits || [];
-      if (hits.length === 0) {
+      const localMatches = state.localWorkspace.connected
+        ? state.localWorkspace.files.filter(f => f.name.toLowerCase().includes(query.toLowerCase()))
+        : [];
+
+      if (hits.length === 0 && localMatches.length === 0) {
         container.innerHTML = `<div class="empty-state"><p>No results for "<strong>${h(query)}</strong>"</p></div>`;
       } else {
-        container.innerHTML = hits.map(hit => {
-          let prov = '';
-          if (hit.provenance && typeof hit.provenance === 'object') {
-            prov = hit.provenance.sheetName || hit.provenance.section || '';
-          } else if (typeof hit.provenance === 'string') {
-            prov = hit.provenance;
-          }
-          return `
+        container.innerHTML = `
+          ${hits.map(hit => `
             <div class="knowledge-hit-row">
               <div class="hit-filename">${h(hit.filename)}</div>
-              ${prov ? `<div class="hit-prov">${h(prov)}</div>` : ''}
               <div class="hit-excerpt">${h((hit.content || '').slice(0, 160))}…</div>
-            </div>`;
-        }).join('');
+            </div>`).join('')}
+          ${localMatches.map(f => `
+            <div class="knowledge-hit-row">
+              <div class="hit-filename">📁 Local: ${h(f.name)}</div>
+              <div class="hit-excerpt">${formatFileSize(f.size)} · Authorized in ${h(state.localWorkspace.folderName)}</div>
+            </div>`).join('')}
+        `;
       }
     } catch (err) {
       container.innerHTML = `<div class="error-state">Search failed: ${h(err.message)}</div>`;
@@ -1868,9 +3449,9 @@
     if (!grid) return;
     try {
       const data = await MesniumClient.request('mesnium.connections.status');
-
       const googleStatus = data.google?.status?.toLowerCase() || 'disconnected';
       const waStatus     = data.whatsapp?.status || 'NOT_CONNECTED';
+      const googleEmail  = data.google?.email;
 
       grid.innerHTML = `
         <div class="conn-card">
@@ -1879,7 +3460,7 @@
               <div class="conn-icon conn-icon--google">G</div>
               <div>
                 <div class="conn-name">Google Workspace</div>
-                <div class="conn-detail">${data.google?.email ? h(data.google.email) : 'Not connected'}</div>
+                <div class="conn-detail">${googleEmail ? h(googleEmail) : 'Not connected'}</div>
               </div>
             </div>
             <span class="badge badge--${googleStatus === 'connected' ? 'ok' : 'warn'}">${h(googleStatus)}</span>
@@ -1889,7 +3470,10 @@
             <span class="conn-service">Gmail</span>
             <span class="conn-service">Calendar</span>
           </div>
-          ${googleStatus !== 'connected' ? `<button class="btn btn-secondary btn-sm conn-action-btn" disabled>Connect Google (coming soon)</button>` : ''}
+          ${googleStatus !== 'connected' ?
+            `<button class="btn btn-primary btn-sm conn-action-btn" id="btn-connect-google">Connect Google</button>` :
+            `<button class="btn btn-secondary btn-sm conn-action-btn" id="btn-disconnect-google">Disconnect</button>`
+          }
         </div>
 
         <div class="conn-card">
@@ -1919,12 +3503,77 @@
             <div class="conn-upcoming-item">Slack</div>
             <div class="conn-upcoming-item">Meta Ads</div>
           </div>
-        </div>
-      `;
+        </div>`;
 
-      const btnWa = document.getElementById('btn-connect-whatsapp');
-      if (btnWa && waStatus !== 'CONNECTED') {
-        btnWa.onclick = () => openWhatsAppModal();
+      const btnConnectGoogle = document.getElementById('btn-connect-google');
+      if (btnConnectGoogle) {
+        btnConnectGoogle.onclick = async () => {
+          btnConnectGoogle.disabled = true;
+          btnConnectGoogle.innerText = 'Connecting Google…';
+          btnConnectGoogle.style.opacity = '0.7';
+
+          try {
+            const res = await MesniumClient.request('mesnium.connections.connect', { provider: 'google' });
+            if (res && res.status === 'CONNECTED') {
+              await handlersConnections();
+              return;
+            }
+
+            if (res && res.authUrl) {
+              const authWindow = window.open(res.authUrl, 'MesniumGoogleAuth', 'width=600,height=750,menubar=no,toolbar=no');
+              let attempts = 0;
+              const maxAttempts = 30; // 60s
+              const pollInterval = setInterval(async () => {
+                attempts++;
+                try {
+                  const check = await MesniumClient.request('mesnium.connections.status');
+                  if (check && check.google && check.google.status?.toLowerCase() === 'connected') {
+                    clearInterval(pollInterval);
+                    if (authWindow && !authWindow.closed) {
+                      try { authWindow.close(); } catch (_) {}
+                    }
+                    await handlersConnections();
+                    return;
+                  }
+                } catch (_) {}
+
+                if (attempts >= maxAttempts) {
+                  clearInterval(pollInterval);
+                  btnConnectGoogle.disabled = false;
+                  btnConnectGoogle.innerText = 'Connect Google';
+                  btnConnectGoogle.style.opacity = '';
+                }
+              }, 2000);
+            } else {
+              btnConnectGoogle.disabled = false;
+              btnConnectGoogle.innerText = 'Connect Google';
+              btnConnectGoogle.style.opacity = '';
+            }
+          } catch (err) {
+            btnConnectGoogle.disabled = false;
+            btnConnectGoogle.innerText = 'Connect Google';
+            btnConnectGoogle.style.opacity = '';
+            console.error('[Mesnium] Google connect error:', err);
+          }
+        };
+      }
+
+      const btnDisconnectGoogle = document.getElementById('btn-disconnect-google');
+      if (btnDisconnectGoogle) {
+        btnDisconnectGoogle.onclick = async () => {
+          if (confirm('Disconnect Google Workspace?')) {
+            try {
+              btnDisconnectGoogle.disabled = true;
+              btnDisconnectGoogle.innerText = 'Disconnecting…';
+              btnDisconnectGoogle.style.opacity = '0.7';
+              await MesniumClient.request('mesnium.connections.disconnect', { provider: 'google' });
+              await handlersConnections();
+            } catch (err) {
+              console.error('[Mesnium] Google disconnect error:', err);
+              await handlersConnections();
+            }
+          }
+        };
       }
     } catch (err) {
       grid.innerHTML = `<div class="error-state">Failed to load connections: ${h(err.message)}</div>`;
@@ -1933,15 +3582,11 @@
 
   // ─── SETTINGS HANDLERS ─────────────────────────────────────────────────────
   function handlersSettings() {
-    // Settings tab switching
     document.querySelectorAll('[data-settings-tab]').forEach(btn => {
       btn.onclick = (e) => {
         e.preventDefault();
         state.settingsTab = btn.getAttribute('data-settings-tab');
-        document.querySelectorAll('.settings-tab').forEach(b => b.classList.toggle('settings-tab--active', b === btn));
-        const content = document.getElementById('settings-content');
-        if (content) content.innerHTML = renderSettingsTab(state.settingsTab);
-        handlersSettings(); // Re-bind after content change
+        renderApp();
       };
     });
 
@@ -1949,236 +3594,46 @@
     if (btnSave) {
       btnSave.onclick = () => {
         const input = document.getElementById('setting-biz-name');
-        if (input) {
-          state.settings.businessName = input.value.trim() || 'My Business';
-          localStorage.setItem('mesnium.settings.v2', JSON.stringify(state.settings));
-          showToast('Settings saved');
-          // Update topbar
-          const topbarBadge = document.querySelector('.topbar-ws-badge');
-          if (topbarBadge) topbarBadge.textContent = state.settings.businessName;
+        if (input && input.value.trim()) {
+          state.settings.businessName = input.value.trim();
+          try {
+            localStorage.setItem('mesnium.settings.v2', JSON.stringify(state.settings));
+          } catch (_) {}
+          renderApp();
         }
       };
     }
   }
 
-  // ─── MODALS ────────────────────────────────────────────────────────────────
-  function openModal(html) {
-    const root = document.getElementById('mesnium-modal-root');
-    if (!root) return;
-    root.innerHTML = `
-      <div class="modal-backdrop" id="modal-backdrop">
-        <div class="modal-box" id="modal-box">
-          ${html}
-        </div>
-      </div>`;
-    document.getElementById('modal-backdrop').onclick = (e) => {
-      if (e.target.id === 'modal-backdrop') closeModal();
-    };
-  }
+  // ─── INITIALIZATION ────────────────────────────────────────────────────────
+  window.addEventListener('DOMContentLoaded', () => {
+    console.log('[Mesnium] Studio Universal Workspace initializing…');
+    renderApp();
 
-  window.closeModal = function () {
-    const root = document.getElementById('mesnium-modal-root');
-    if (root) root.innerHTML = '';
-  };
-
-  function openCreateAutomationModal() {
-    openModal(`
-      <div class="modal-header">
-        <h3>Create Automation</h3>
-        <button class="modal-close" onclick="window.closeModal()">${icon('x', 18)}</button>
-      </div>
-      <div class="modal-body">
-        <div class="form-field">
-          <label class="form-label">Automation Name</label>
-          <input type="text" id="modal-auto-name" class="form-input" placeholder="e.g. Weekly Sales Summary" />
-        </div>
-        <div class="form-field">
-          <label class="form-label">What should it do?</label>
-          <textarea id="modal-auto-prompt" class="form-input" rows="3" placeholder="e.g. Every Monday morning, summarise sales leads from last week"></textarea>
-        </div>
-      </div>
-      <div class="modal-footer">
-        <button class="btn btn-secondary" onclick="window.closeModal()">Cancel</button>
-        <button class="btn btn-primary" id="btn-modal-save-auto">Save Automation</button>
-      </div>
-    `);
-    document.getElementById('btn-modal-save-auto').onclick = submitCreateAutomation;
-  }
-
-  async function submitCreateAutomation() {
-    const name   = document.getElementById('modal-auto-name')?.value.trim();
-    const prompt = document.getElementById('modal-auto-prompt')?.value.trim();
-    if (!name) { showToast('Please enter a name.', 'warn'); return; }
-    const btn = document.getElementById('btn-modal-save-auto');
-    if (btn) { btn.textContent = 'Saving…'; btn.disabled = true; }
-    try {
-      await MesniumClient.request('mesnium.automations.create', { name, prompt });
-      closeModal();
-      showToast(`Automation "${name}" created.`);
-      loadWorkContent();
-    } catch (err) {
-      showToast(`Failed: ${err.message}`, 'error');
-      if (btn) { btn.textContent = 'Save Automation'; btn.disabled = false; }
-    }
-  }
-
-  function openAddKnowledgeModal() {
-    openModal(`
-      <div class="modal-header">
-        <h3>Add Knowledge Source</h3>
-        <button class="modal-close" onclick="window.closeModal()">${icon('x', 18)}</button>
-      </div>
-      <div class="modal-body">
-        <div class="form-field">
-          <label class="form-label">Local file or folder path</label>
-          <input type="text" id="modal-src-path" class="form-input" placeholder="e.g. C:/Users/.../Documents/reports" />
-        </div>
-        <p class="form-hint">Supports PDF, DOCX, XLSX, CSV, PPTX, TXT, MD</p>
-      </div>
-      <div class="modal-footer">
-        <button class="btn btn-secondary" onclick="window.closeModal()">Cancel</button>
-        <button class="btn btn-primary" id="btn-modal-index-src">Index Source</button>
-      </div>
-    `);
-    document.getElementById('btn-modal-index-src').onclick = submitAddKnowledge;
-  }
-
-  async function submitAddKnowledge() {
-    const path = document.getElementById('modal-src-path')?.value.trim();
-    if (!path) { showToast('Please enter a path.', 'warn'); return; }
-    const btn = document.getElementById('btn-modal-index-src');
-    if (btn) { btn.textContent = 'Indexing…'; btn.disabled = true; }
-    try {
-      await MesniumClient.request('mesnium.knowledge.addSource', { path });
-      closeModal();
-      showToast('Source added and indexed.');
-      loadKnowledgeDocs();
-    } catch (err) {
-      showToast(`Indexing error: ${err.message}`, 'error');
-      if (btn) { btn.textContent = 'Index Source'; btn.disabled = false; }
-    }
-  }
-
-  function openWhatsAppModal() {
-    openModal(`
-      <div class="modal-header">
-        <h3>Connect WhatsApp Business</h3>
-        <button class="modal-close" onclick="window.closeModal()">${icon('x', 18)}</button>
-      </div>
-      <div class="modal-body">
-        <p class="modal-description">
-          Connect your WhatsApp Business number to receive and automatically respond to customer inquiries using your business knowledge.
-        </p>
-        <div class="form-field">
-          <label class="form-label">Business Phone Number</label>
-          <input type="tel" id="modal-wa-phone" class="form-input" placeholder="+1 (555) 000-0000" />
-        </div>
-        <div class="notice-box">
-          ℹ️ Full WhatsApp Business API integration is coming soon. You'll receive setup instructions at your number.
-        </div>
-      </div>
-      <div class="modal-footer">
-        <button class="btn btn-secondary" onclick="window.closeModal()">Cancel</button>
-        <button class="btn btn-primary" disabled title="WhatsApp integration coming soon">Request Early Access</button>
-      </div>
-    `);
-  }
-
-  // ─── TOAST ─────────────────────────────────────────────────────────────────
-  function showToast(msg, type = 'info') {
-    let root = document.getElementById('mesnium-toast-root');
-    if (!root) return;
-    const id = 'toast-' + Date.now();
-    const div = document.createElement('div');
-    div.id = id;
-    div.className = `toast toast--${type}`;
-    div.textContent = msg;
-    root.appendChild(div);
-    setTimeout(() => {
-      div.style.opacity = '0';
-      setTimeout(() => div.remove(), 300);
-    }, 2800);
-  }
-
-  window.showToast = showToast;
-
-  // ─── UTILITIES ─────────────────────────────────────────────────────────────
-  function h(str) {
-    if (typeof str !== 'string') return String(str ?? '');
-    return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-  }
-
-  // ─── GLOBAL CLICK DELEGATOR ────────────────────────────────────────────────
-  // Catches any clicks that fall through onclick-based handlers — defensive safety net
-  function bootGlobalDelegator() {
-    document.addEventListener('click', (e) => {
-      const target = e.target.closest('a[href^="#/"], [data-nav]');
-      if (target && target.tagName === 'A') {
-        // Hash links are handled by hashchange — no extra work needed
-        return;
-      }
-    });
-  }
-
-  // ─── BOOTSTRAP ─────────────────────────────────────────────────────────────
-  function boot() {
-    console.log('[Mesnium] Booting Mesnium Studio UI...');
-    try {
-      // Suppress legacy OpenClaw UI immediately
-      const legacy = document.querySelector('openclaw-app');
-      if (legacy) { legacy.style.display = 'none'; legacy.setAttribute('hidden', ''); }
-
-      // Observer to keep suppressing if it tries to re-mount
-      if (document.body) {
-        new MutationObserver(() => {
-          const el = document.querySelector('openclaw-app');
-          if (el && el.style.display !== 'none') { el.style.display = 'none'; el.setAttribute('hidden', ''); }
-        }).observe(document.body, { childList: true, subtree: true });
-      }
-
-      // Start Gateway connection (non-blocking, UI renders immediately)
-      MesniumClient.connect().catch(err => {
-        console.warn('[Mesnium] Background WS connect failed (UI remains functional):', err.message);
+    // Connect to OpenClaw Gateway
+    MesniumClient.connect()
+      .then(() => {
+        console.log('[Mesnium] Connected to OpenClaw gateway');
+        loadProjects();
+      })
+      .catch((err) => {
+        console.warn('[Mesnium] Initial connect error:', err.message);
       });
+  });
 
-      renderApp();
+  window.addEventListener('hashchange', () => {
+    state.route = getRouteFromHash();
+    renderApp();
+  });
 
-      window.addEventListener('hashchange', () => {
-        console.log('[Mesnium] Hash changed:', window.location.hash);
-        renderApp();
-      });
-      window.addEventListener('popstate', () => {
-        console.log('[Mesnium] Popstate changed');
-        renderApp();
-      });
+  window.sendChatMessage = sendChatMessage;
+  window.startNewChat = startNewChat;
 
-      // Keyboard shortcut: Ctrl+B / Cmd+B = toggle sidebar
-      window.addEventListener('keydown', (e) => {
-        if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'b') {
-          e.preventDefault();
-          state.sidebarCollapsed = !state.sidebarCollapsed;
-          renderApp();
-        }
-      });
-
-      // Reconnect on tab-focus if disconnected
-      document.addEventListener('visibilitychange', () => {
-        if (document.visibilityState === 'visible' && MesniumClient.status !== 'connected') {
-          MesniumClient.connect().catch(() => {});
-        }
-      });
-
-      bootGlobalDelegator();
-      console.log('[Mesnium] Boot completed');
-    } catch (err) {
-      console.error('[Mesnium] Boot Failure:', err);
-    }
+  // If DOM is already ready
+  if (document.readyState === 'complete' || document.readyState === 'interactive') {
+    renderApp();
+    MesniumClient.connect()
+      .then(() => loadProjects())
+      .catch(() => {});
   }
-
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', boot);
-  } else {
-    boot();
-  }
-
 })();

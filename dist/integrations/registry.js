@@ -4,11 +4,49 @@
  * Manages active connected accounts, provider adapters, and enforces read-only boundaries.
  */
 
+import { execFileSync } from 'node:child_process';
 import { IntegrationProvider, IntegrationStatus, PermissionLevel } from './types.js';
+import { GoogleWorkspaceClient } from './google/client.js';
 
 export class MesniumIntegrationRegistry {
   constructor() {
     this.accounts = new Map(); // key: provider:accountId -> IntegrationAccount
+    this.disconnectedProviders = new Set();
+  }
+
+  syncWithRuntime() {
+    try {
+      const client = new GoogleWorkspaceClient();
+      if (!client.isAvailable || this.disconnectedProviders.has('google')) {
+        for (const [key, acc] of this.accounts) {
+          if (acc.provider === IntegrationProvider.GOOGLE) {
+            this.accounts.delete(key);
+          }
+        }
+        return;
+      }
+      const raw = execFileSync('gog', ['auth', 'list', '--json'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 5000 });
+      const data = JSON.parse(raw.trim() || '{}');
+      const accounts = data.accounts || [];
+      // Remove stale google accounts
+      for (const [key, acc] of this.accounts) {
+        if (acc.provider === IntegrationProvider.GOOGLE) {
+          this.accounts.delete(key);
+        }
+      }
+      for (const ac of accounts) {
+        this.registerAccount({
+          provider: IntegrationProvider.GOOGLE,
+          accountId: `google_${ac.email}`,
+          email: ac.email,
+          displayName: ac.email,
+          status: IntegrationStatus.CONNECTED,
+          services: ac.services || ['drive', 'gmail', 'calendar']
+        });
+      }
+    } catch (_) {
+      // Do not crash if CLI is temporarily unavailable
+    }
   }
 
   registerAccount({
@@ -57,11 +95,40 @@ export class MesniumIntegrationRegistry {
   }
 
   disconnectAccount(provider, accountId) {
-    const key = `${provider}:${accountId}`;
-    const existing = this.accounts.get(key);
-    if (existing) {
-      existing.status = IntegrationStatus.DISCONNECTED;
+    if (provider) this.disconnectedProviders.add(provider);
+    globalThis.__mesniumDisconnectedProviders = this.disconnectedProviders;
+    if (accountId) {
+      const key = `${provider}:${accountId}`;
+      const existing = this.accounts.get(key);
+      if (existing) {
+        existing.status = IntegrationStatus.DISCONNECTED;
+        return true;
+      }
+    } else {
+      for (const [key, acc] of this.accounts) {
+        if (acc.provider === provider) {
+          this.accounts.delete(key);
+        }
+      }
       return true;
+    }
+    return false;
+  }
+
+  reconnectProvider(provider) {
+    if (provider) this.disconnectedProviders.delete(provider);
+    globalThis.__mesniumDisconnectedProviders = this.disconnectedProviders;
+    this.syncWithRuntime();
+    const accounts = this.listAccounts(provider);
+    return accounts.length > 0 ? accounts[0] : null;
+  }
+
+  unregisterAccount(accountId) {
+    for (const [key, acc] of this.accounts) {
+      if (acc.accountId === accountId || acc.key === accountId) {
+        this.accounts.delete(key);
+        return true;
+      }
     }
     return false;
   }
@@ -94,15 +161,7 @@ let defaultRegistry = null;
 export function getSharedIntegrationRegistry() {
   if (!defaultRegistry) {
     defaultRegistry = new MesniumIntegrationRegistry();
-    // Default verified Google Workspace connection
-    defaultRegistry.registerAccount({
-      provider: IntegrationProvider.GOOGLE,
-      accountId: 'google_workspace_primary',
-      email: 'alex@business.com',
-      displayName: 'Alex (Executive)',
-      status: IntegrationStatus.CONNECTED,
-      services: ['drive', 'gmail', 'calendar']
-    });
   }
+  defaultRegistry.syncWithRuntime();
   return defaultRegistry;
 }

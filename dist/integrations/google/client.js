@@ -26,7 +26,11 @@ export class GoogleWorkspaceClient {
 
   runGog(args = [], options = {}) {
     if (!this.isAvailable) {
-      throw new Error('Google CLI (gog) is not installed or available on PATH.');
+      throw new Error('Google Workspace service is not available.');
+    }
+
+    if (globalThis.__mesniumDisconnectedProviders && globalThis.__mesniumDisconnectedProviders.has('google')) {
+      throw new Error("Your Google Workspace isn't connected right now. You can connect Google Workspace from Connections.");
     }
 
     const finalArgs = ['--readonly', '--no-input', '--json', '--results-only'];

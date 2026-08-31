@@ -15,6 +15,7 @@ import { u as configureMemoryCoreDreamingState } from "../../dreaming-state-DLMG
 import { t as registerShortTermPromotionDreaming } from "../../dreaming-Cth0w6SG.js";
 import { KnowledgeSearchTool } from "../../knowledge/agent-tool.js";
 import { GoogleDriveSearchTool, GmailSearchTool, CalendarAgendaTool } from "../../integrations/google/agent-tools.js";
+import { LocalFilesystemTool } from "../../filesystem/agent-tool.js";
 const MEMORY_FLUSH_TARGET_HINT = "Store durable memories only in memory/YYYY-MM-DD.md (create memory/ if needed).";
 const MEMORY_FLUSH_APPEND_ONLY_HINT = "If memory/YYYY-MM-DD.md already exists, APPEND new content only and do not overwrite existing entries.";
 const MEMORY_FLUSH_READ_ONLY_HINT = "Treat workspace bootstrap/reference files such as MEMORY.md, DREAMS.md, SOUL.md, TOOLS.md, and AGENTS.md as read-only during this flush; never overwrite, replace, or edit them.";
@@ -269,6 +270,7 @@ var memory_core_default = definePluginEntry({
 		api.registerTool(() => GoogleDriveSearchTool, { names: ["google_drive_search"] });
 		api.registerTool(() => GmailSearchTool, { names: ["gmail_search"] });
 		api.registerTool(() => CalendarAgendaTool, { names: ["calendar_agenda"] });
+		api.registerTool(() => LocalFilesystemTool, { names: ["local_filesystem"] });
 		api.registerCommand({
 			name: "dreaming",
 			description: "Enable or disable memory dreaming.",
