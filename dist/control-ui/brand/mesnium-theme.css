@@ -5164,4 +5164,133 @@ input:focus, textarea:focus, select:focus {
   color: var(--text, #ceced6);
 }
 
+/* ─── SPECIALIZED AGENTS WORKSPACE (V1.2) ────────────────────────────────── */
+.surface-agents {
+  padding: 28px 36px;
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+.agents-search-bar {
+  margin: 20px 0 28px;
+}
+
+.agents-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  gap: 20px;
+}
+
+.agent-card {
+  background: var(--bg-surface, #0f0f14);
+  border: 1px solid var(--border, #1c1c28);
+  border-radius: 10px;
+  padding: 22px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  transition: all 0.2s ease;
+}
+
+.agent-card:hover {
+  border-color: var(--border-hover, #2c2c3e);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+
+.agent-card--paused {
+  opacity: 0.72;
+  border-style: dashed;
+}
+
+.agent-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 16px;
+}
+
+.agent-card-identity {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.agent-avatar-icon {
+  font-size: 26px;
+  width: 44px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-accent, #171722);
+  border: 1px solid var(--border, #242436);
+  border-radius: 8px;
+}
+
+.agent-card-name {
+  margin: 0 0 4px;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary, #f4f4f8);
+}
+
+.agent-role-pill {
+  font-size: 11px;
+  font-weight: 500;
+  padding: 2px 8px;
+  border-radius: 12px;
+  background: rgba(99, 102, 241, 0.12);
+  color: #818cf8;
+  border: 1px solid rgba(99, 102, 241, 0.25);
+  display: inline-block;
+}
+
+.agent-card-body {
+  flex-grow: 1;
+  margin-bottom: 20px;
+}
+
+.agent-card-purpose {
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: var(--text-secondary, #9e9ea8);
+  margin: 0 0 16px;
+}
+
+.agent-card-meta {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-subtle, #181824);
+}
+
+.agent-meta-label {
+  color: var(--muted, #686875);
+}
+
+.agent-meta-value {
+  color: var(--text-primary, #ceced6);
+  font-weight: 500;
+}
+
+.agent-card-footer {
+  display: flex;
+  gap: 10px;
+  margin-top: auto;
+}
+
+.agent-card-footer .btn {
+  flex: 1;
+  justify-content: center;
+}
+
+.agents-loading {
+  grid-column: 1 / -1;
+  text-align: center;
+  padding: 60px 0;
+  color: var(--muted, #747480);
+}
+
 

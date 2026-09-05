@@ -22,6 +22,7 @@
   const ROUTES = {
     overview:    { title: 'Overview',     icon: 'home' },
     chat:        { title: 'Chat',         icon: 'message-circle' },
+    agents:      { title: 'Agents',       icon: 'users' },
     projects:    { title: 'Projects',     icon: 'folder' },
     files:       { title: 'Files',        icon: 'folder' },
     inbox:       { title: 'Inbox',        icon: 'inbox' },
@@ -442,7 +443,8 @@
       sidebar:        `<rect x="3" y="3" width="18" height="18" rx="2"/><line x1="9" y1="3" x2="9" y2="21"/>`,
       sparkles:       `<path d="M12 2l2.4 7.2L21.6 12l-7.2 2.4L12 21.6l-2.4-7.2L2.4 12l7.2-2.4z"/>`,
       arrowLeft:      `<line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/>`,
-      upload:         `<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>`
+      upload:         `<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>`,
+      users:          `<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>`
     };
     const paths = icons[name] || '';
     return `<svg viewBox="0 0 24 24" width="${size}" height="${size}" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${paths}</svg>`;
@@ -743,6 +745,7 @@
         `}
 
         <nav class="sidebar-nav">
+          ${navItem('agents',      'Agents',      'users')}
           ${navItem('files',       'Files',       'folder')}
           ${navItem('work',        'Work',        'zap')}
           ${navItem('knowledge',   'Knowledge',   'book-open')}
@@ -831,6 +834,7 @@
     switch (state.route) {
       case 'overview':    return surfaceOverview();
       case 'chat':        return surfaceChat();
+      case 'agents':      return surfaceAgents();
       case 'projects':    return surfaceProjects();
       case 'files':       return surfaceFiles();
       case 'inbox':       return surfaceInbox();
@@ -841,6 +845,39 @@
       case 'settings':    return surfaceSettings();
       default:            return surfaceOverview();
     }
+  }
+
+  // ─── SURFACE: AGENTS (Specialized AI Agents Workspace V1.2) ────────────────
+  function surfaceAgents() {
+    return `
+      <div class="surface surface-agents" id="surface-agents">
+        <div class="surface-header">
+          <div>
+            <h1 class="surface-title">Specialized AI Agents</h1>
+            <p class="surface-sub">Autonomous business agents operating with grounded knowledge and strictly enforced permissions.</p>
+          </div>
+          <div class="header-action-group">
+            <button class="btn btn-primary" id="btn-agents-open-chat">
+              ${icon('message-circle', 16)} Open Universal Chat
+            </button>
+          </div>
+        </div>
+
+        <div class="agents-search-bar">
+          <div class="search-input-wrap">
+            <span class="search-icon">${icon('search', 16)}</span>
+            <input type="text" class="search-input" id="agents-filter-input" placeholder="Search agents by role, purpose, or name…" />
+          </div>
+        </div>
+
+        <div class="agents-grid" id="agents-grid">
+          <div class="agents-loading">
+            <span class="thinking-dot"></span><span class="thinking-dot"></span><span class="thinking-dot"></span>
+            <span>Loading specialized agents…</span>
+          </div>
+        </div>
+      </div>
+    `;
   }
 
   // ─── SURFACE: OVERVIEW ─────────────────────────────────────────────────────
@@ -1913,6 +1950,7 @@
     const r = state.route;
     if (r === 'overview')    handlersOverview();
     if (r === 'chat')        handlersChat();
+    if (r === 'agents')      handlersAgents();
     if (r === 'projects')    handlersProjects();
     if (r === 'files')       handlersFiles();
     if (r === 'inbox')       handlersInbox();
@@ -1921,6 +1959,133 @@
     if (r === 'activity')    handlersActivity();
     if (r === 'connections') handlersConnections();
     if (r === 'settings')    handlersSettings();
+  }
+
+  // ─── AGENTS SURFACE HANDLERS (V1.2) ────────────────────────────────────────
+  async function handlersAgents() {
+    const grid = document.getElementById('agents-grid');
+    const filterInput = document.getElementById('agents-filter-input');
+    const btnChat = document.getElementById('btn-agents-open-chat');
+
+    if (btnChat) {
+      btnChat.onclick = () => window.navigateTo('chat');
+    }
+
+    let allAgents = [];
+
+    async function loadAgents() {
+      if (!grid) return;
+      try {
+        const res = await MesniumClient.request('mesnium.agents.list');
+        allAgents = res.agents || [];
+        renderCards(filterInput?.value || '');
+      } catch (err) {
+        grid.innerHTML = `<div class="error-state">Failed to load agents: ${h(err.message)}</div>`;
+      }
+    }
+
+    function renderCards(filter = '') {
+      if (!grid) return;
+      const q = filter.trim().toLowerCase();
+      const filtered = allAgents.filter(a => {
+        if (!q) return true;
+        return (a.name || '').toLowerCase().includes(q) || 
+               (a.purpose && a.purpose.toLowerCase().includes(q)) ||
+               (a.role && a.role.toLowerCase().includes(q)) ||
+               (a.description && a.description.toLowerCase().includes(q));
+      });
+
+      if (filtered.length === 0) {
+        grid.innerHTML = `<div class="empty-state">No agents match "${h(filter)}".</div>`;
+        return;
+      }
+
+      const roleIcons = {
+        'Receptionist': '👩‍💼',
+        'Sales': '🎯',
+        'Marketing': '📢',
+        'Operations': '⚙️',
+        'Executive': '👑',
+        'Finance': '📊',
+        'Research': '🔬'
+      };
+
+      grid.innerHTML = filtered.map(agent => {
+        const isPaused = agent.status === 'paused';
+        const roleIcon = roleIcons[agent.role] || '🤖';
+        const purposeText = agent.purpose || agent.description || 'Specialized business agent';
+
+        return `
+          <div class="agent-card ${isPaused ? 'agent-card--paused' : ''}" id="card-${agent.id}" data-agent-id="${agent.id}">
+            <div class="agent-card-header">
+              <div class="agent-card-identity">
+                <span class="agent-avatar-icon">${roleIcon}</span>
+                <div>
+                  <h3 class="agent-card-name">${h(agent.name)}</h3>
+                  <span class="agent-role-pill">${h(agent.role || 'Agent')}</span>
+                </div>
+              </div>
+              <span class="badge ${isPaused ? 'badge--warn' : 'badge--ok'}">
+                ${isPaused ? 'Paused' : 'Active'}
+              </span>
+            </div>
+
+            <div class="agent-card-body">
+              <p class="agent-card-purpose">${h(purposeText)}</p>
+              <div class="agent-card-meta">
+                <span class="agent-meta-label">Status:</span>
+                <span class="agent-meta-value">${isPaused ? 'Paused (Resume to execute)' : 'Online & Ready'}</span>
+              </div>
+            </div>
+
+            <div class="agent-card-footer">
+              <button class="btn btn-sm btn-primary btn-start-task" data-agent-id="${agent.id}" data-agent-name="${h(agent.name)}">
+                ${icon('message-circle', 14)} Start Task
+              </button>
+              <button class="btn btn-sm btn-secondary btn-toggle-agent" data-agent-id="${agent.id}" data-action="${isPaused ? 'resume' : 'pause'}">
+                ${isPaused ? 'Resume' : 'Pause'}
+              </button>
+            </div>
+          </div>
+        `;
+      }).join('');
+
+      // Bind start task buttons
+      grid.querySelectorAll('.btn-start-task').forEach(btn => {
+        btn.onclick = () => {
+          const agentId = btn.getAttribute('data-agent-id');
+          const agentName = btn.getAttribute('data-agent-name');
+          startNewChat();
+          setTimeout(() => {
+            const input = document.getElementById('chat-input');
+            if (input) {
+              input.value = `@${agentName} `;
+              input.focus();
+            }
+          }, 100);
+        };
+      });
+
+      // Bind pause/resume buttons
+      grid.querySelectorAll('.btn-toggle-agent').forEach(btn => {
+        btn.onclick = async () => {
+          const agentId = btn.getAttribute('data-agent-id');
+          const action = btn.getAttribute('data-action');
+          try {
+            await MesniumClient.request(`mesnium.agents.${action}`, { id: agentId });
+            await loadAgents();
+          } catch (err) {
+            alert(`Error: ${err.message}`);
+          }
+        };
+      });
+    }
+
+    if (filterInput) {
+      filterInput.oninput = () => renderCards(filterInput.value);
+    }
+
+    await loadAgents();
   }
 
   // ─── OVERVIEW HANDLERS ─────────────────────────────────────────────────────
@@ -2156,14 +2321,20 @@
     let slashActiveIndex = 0;
     let autoActiveIndex = 0;
     let isAutoPickerMode = false;
+    let agentActiveIndex = 0;
+    let isAgentPickerMode = false;
     let matchingSlashCommands = [];
     let matchingAutomations = [];
+    let matchingAgents = [];
     let cachedAutomations = null;
+    let cachedAgents = null;
     let lastAutoFetchTime = 0;
+    let lastAgentFetchTime = 0;
     let selectedPausedAuto = null;
 
     const SLASH_COMMANDS = [
       { cmd: '/help', desc: 'View supported slash commands and workspace navigation', example: '/help' },
+      { cmd: '/agents', desc: 'Choose a specialized AI agent (Receptionist, Sales, Marketing, Operations, Executive)', example: '/agents' },
       { cmd: '/automations', desc: 'List all business automations, schedules & live statuses', example: '/automations' },
       { cmd: '/run', desc: 'Run an automation', example: '/run' },
       { cmd: '/status', desc: 'Check current status, schedule & next run of an automation', example: '/status <automation-name>' },
@@ -2303,8 +2474,105 @@
         return;
       }
 
+      // ─── AGENT SELECTION PICKER MODE ───────────────────────────────────────
+      if (val === '/agents' || val.startsWith('/agents ') || (val.startsWith('/agents') && !val.startsWith('/agents-'))) {
+        isAgentPickerMode = true;
+        isAutoPickerMode = false;
+        const query = val.replace(/^\/agents\s*/i, '').toLowerCase().trim();
+
+        if (!cachedAgents || Date.now() - lastAgentFetchTime > 4000) {
+          if (!cachedAgents) {
+            slashMenu.innerHTML = `
+              <div class="slash-picker-header">
+                <span class="slash-picker-title">👥 Choose a Specialized Agent</span>
+                <span class="slash-picker-hint">Loading…</span>
+              </div>
+              <div class="slash-picker-empty">Loading specialized agents…</div>
+            `;
+            slashMenu.style.display = 'flex';
+          }
+          try {
+            const res = await MesniumClient.request('mesnium.agents.list');
+            cachedAgents = res.agents || [];
+            lastAgentFetchTime = Date.now();
+          } catch (err) {
+            console.warn('[Mesnium] Could not load agents for picker:', err);
+            if (!cachedAgents) cachedAgents = [];
+          }
+        }
+
+        const list = cachedAgents || [];
+        matchingAgents = list.filter(a => {
+          if (!query) return true;
+          return (a.name || '').toLowerCase().includes(query) || (a.role && a.role.toLowerCase().includes(query)) || (a.purpose && a.purpose.toLowerCase().includes(query));
+        });
+
+        if (matchingAgents.length === 0) {
+          slashMenu.innerHTML = `
+            <div class="slash-picker-header">
+              <span class="slash-picker-title">👥 Choose a Specialized Agent</span>
+              <span class="slash-picker-hint">ESC to cancel</span>
+            </div>
+            <div class="slash-picker-empty">
+              <span>No agents match "${h(query)}".</span>
+            </div>
+          `;
+          slashMenu.style.display = 'flex';
+          return;
+        }
+
+        if (agentActiveIndex >= matchingAgents.length) agentActiveIndex = 0;
+
+        const roleIcons = {
+          'Receptionist': '👩‍💼',
+          'Sales': '🎯',
+          'Marketing': '📢',
+          'Operations': '⚙️',
+          'Executive': '👑',
+          'Finance': '📊',
+          'Research': '🔬'
+        };
+
+        slashMenu.innerHTML = `
+          <div class="slash-picker-header">
+            <span class="slash-picker-title">👥 Choose a Specialized Agent</span>
+            <span class="slash-picker-hint">↑↓ navigate · ↵ select · esc cancel</span>
+          </div>
+          ${matchingAgents.map((a, idx) => {
+            const isActive = idx === agentActiveIndex;
+            const rIcon = roleIcons[a.role] || '🤖';
+            const isPaused = a.status === 'paused';
+            return `
+              <button class="slash-auto-item ${isActive ? 'slash-auto-item--active' : ''}" data-agent-picker-id="${a.id}">
+                <div class="slash-auto-left">
+                  <span class="slash-auto-indicator">${rIcon}</span>
+                  <div class="slash-auto-main">
+                    <span class="slash-auto-name">${h(a.name)}</span>
+                    <span class="slash-auto-meta">${h(a.role || 'Agent')} · ${h(a.purpose ? (a.purpose.length > 55 ? a.purpose.slice(0, 55) + '…' : a.purpose) : (a.description || ''))}</span>
+                  </div>
+                </div>
+                <span class="slash-auto-badge ${isPaused ? 'badge--warn' : 'badge--completed'}">${isPaused ? 'Paused' : 'Active'}</span>
+              </button>
+            `;
+          }).join('')}
+        `;
+        slashMenu.style.display = 'flex';
+
+        slashMenu.querySelectorAll('[data-agent-picker-id]').forEach(btn => {
+          btn.onclick = (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            const aId = btn.getAttribute('data-agent-picker-id');
+            const agent = matchingAgents.find(a => a.id === aId) || list.find(a => a.id === aId);
+            if (agent) handleAgentSelectedFromPicker(agent);
+          };
+        });
+        return;
+      }
+
       // ─── GENERAL SLASH COMMANDS MENU ───────────────────────────────────────
       isAutoPickerMode = false;
+      isAgentPickerMode = false;
       selectedPausedAuto = null;
       const query = val.slice(1).toLowerCase().trim();
       matchingSlashCommands = SLASH_COMMANDS.filter(c => 
@@ -2328,6 +2596,10 @@
             const cmd = item.getAttribute('data-slash-cmd');
             if (cmd === '/run') {
               textarea.value = '/run ';
+              textarea.focus();
+              updateSlashMenu();
+            } else if (cmd === '/agents') {
+              textarea.value = '/agents ';
               textarea.focus();
               updateSlashMenu();
             } else if (cmd === '/status' || cmd === '/history' || cmd === '/pause' || cmd === '/resume') {
@@ -2427,6 +2699,18 @@
       await executeAutomationInNewChat(auto);
     }
 
+    function handleAgentSelectedFromPicker(agent) {
+      if (!agent) return;
+      slashMenu.style.display = 'none';
+      isAgentPickerMode = false;
+      if (textarea) {
+        textarea.value = `@${agent.name} `;
+        textarea.focus();
+        textarea.style.height = 'auto';
+        textarea.style.height = Math.min(textarea.scrollHeight, 160) + 'px';
+      }
+    }
+
     // Auto-resize textarea & slash command / automation picker keyboard handling
     if (textarea) {
       textarea.addEventListener('input', () => {
@@ -2473,6 +2757,36 @@
                 const selected = matchingAutomations[autoActiveIndex];
                 if (selected) {
                   handleAutomationSelectedFromPicker(selected);
+                  return;
+                }
+              }
+            }
+          } else if (isAgentPickerMode) {
+            // Agent Picker keyboard navigation
+            if (matchingAgents.length > 0) {
+              if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                agentActiveIndex = (agentActiveIndex + 1) % matchingAgents.length;
+                updateSlashMenu();
+                return;
+              }
+              if (e.key === 'ArrowUp') {
+                e.preventDefault();
+                agentActiveIndex = (agentActiveIndex - 1 + matchingAgents.length) % matchingAgents.length;
+                updateSlashMenu();
+                return;
+              }
+              if (e.key === 'Escape') {
+                e.preventDefault();
+                slashMenu.style.display = 'none';
+                isAgentPickerMode = false;
+                return;
+              }
+              if (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey)) {
+                e.preventDefault();
+                const selected = matchingAgents[agentActiveIndex];
+                if (selected) {
+                  handleAgentSelectedFromPicker(selected);
                   return;
                 }
               }

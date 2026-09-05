@@ -80,6 +80,24 @@ export class GoogleWorkspaceClient {
     }
   }
 
+  async verifyTokenHealth() {
+    if (!this.isAvailable) return { ok: false, status: 'NOT_AVAILABLE', reason: 'Google Workspace CLI is not installed.' };
+    try {
+      execFileSync('gog', ['--no-input', '--json', '--results-only', '--readonly', 'gmail', 'labels', 'list', '--max=1'], {
+        encoding: 'utf8',
+        timeout: 6000,
+        stdio: ['ignore', 'pipe', 'pipe']
+      });
+      return { ok: true, status: 'CONNECTED' };
+    } catch (err) {
+      const errStr = (err.stderr ? err.stderr.toString('utf8') : err.message) || '';
+      if (errStr.includes('invalid_grant') || errStr.includes('expired or revoked') || errStr.includes('Token has been expired')) {
+        return { ok: false, status: 'REQUIRES_AUTHORIZATION', reason: 'Google Workspace authorization has expired or was revoked. Please reconnect via Settings > Connections.' };
+      }
+      return { ok: false, status: 'ERROR', reason: errStr.trim() };
+    }
+  }
+
   // ─── GMAIL SEARCH & READ ─────────────────────────────────────────────────────
   async gmailSearch(query = 'newer_than:30d', options = {}) {
     const args = ['gmail', 'messages', 'search', query];

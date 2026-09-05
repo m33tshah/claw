@@ -68,14 +68,15 @@ export class MesniumActionPolicy {
     const risk = this.classifyRisk(actionType);
 
     // Read actions require READ permission
-    if (risk === RiskLevel.LOW && !agent.permissions[PermissionMode.READ]) {
+    if (risk === RiskLevel.LOW && agent.permissions && !agent.permissions[PermissionMode.READ]) {
       return { allowed: false, reason: `Agent "${agent.name}" lacks permission to read workspace data.` };
     }
 
     // High risk actions require PROPOSE permission at minimum
-    if (risk === RiskLevel.HIGH && !agent.permissions[PermissionMode.PROPOSE]) {
+    if (risk === RiskLevel.HIGH && agent.permissions && !agent.permissions[PermissionMode.PROPOSE]) {
       return { allowed: false, reason: `Agent "${agent.name}" is not permitted to propose external actions.` };
     }
+
 
     const needsApproval = this.requiresApproval(actionType);
 

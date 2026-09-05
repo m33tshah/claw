@@ -73,7 +73,7 @@ export function calculateNextRun(scheduleExpr, fromDate = new Date()) {
 
 export class MesniumAutomationEngine {
   constructor(options = {}) {
-    this.filePath = options.filePath || getAutomationsFilePath();
+    this.filePath = options.filePath || options.configPath || getAutomationsFilePath();
     this.automations = new Map();
     this.activityLedger = options.activityLedger || getSharedActivityLedger();
     this.gatekeeper = options.gatekeeper || getSharedActionGatekeeper();
@@ -82,6 +82,13 @@ export class MesniumAutomationEngine {
     this.lastLoadedMtime = 0;
     this.load();
     this.startScheduler();
+  }
+
+  stopScheduler() {
+    if (this.schedulerTimer) {
+      clearInterval(this.schedulerTimer);
+      this.schedulerTimer = null;
+    }
   }
 
   _syncFromDisk() {
@@ -214,7 +221,9 @@ export class MesniumAutomationEngine {
     if (!data.name) throw new Error('Automation name is required.');
     const id = data.id || `auto_${data.name.toLowerCase().replace(/[^a-z0-9_-]/g, '_')}_${Math.random().toString(36).slice(2, 6)}`;
     
-    const trigger = data.trigger || { type: 'schedule', scheduleExpr: data.scheduleExpr || '0 9 * * *' };
+    const trigger = data.trigger || { type: 'schedule', scheduleExpr: data.scheduleExpr || data.cron || '0 9 * * *' };
+    if (trigger.cron && !trigger.scheduleExpr) trigger.scheduleExpr = trigger.cron;
+    if (trigger.scheduleExpr && !trigger.cron) trigger.cron = trigger.scheduleExpr;
     const nextRun = trigger.type === 'schedule' ? calculateNextRun(trigger.scheduleExpr) : null;
 
     const entry = {
@@ -222,10 +231,14 @@ export class MesniumAutomationEngine {
       name: data.name,
       description: data.description || '',
       trigger,
-      actions: data.actions || [
+      status: (data.enabled !== false && data.status !== 'paused') ? 'active' : 'paused',
+      steps: data.steps || data.actions || [
         { type: data.actionType || 'briefing.generate', payload: data.actionPayload || {} }
       ],
-      enabled: data.enabled !== false,
+      actions: data.actions || data.steps || [
+        { type: data.actionType || 'briefing.generate', payload: data.actionPayload || {} }
+      ],
+      enabled: data.enabled !== false && data.status !== 'paused',
       approvalPolicy: data.approvalPolicy || 'human_approval',
       workspaceId: data.workspaceId || 'default',
       createdAt: Date.now(),
@@ -250,14 +263,28 @@ export class MesniumAutomationEngine {
     if (updates.description !== undefined) item.description = updates.description;
     if (updates.trigger !== undefined) {
       item.trigger = updates.trigger;
+      if (item.trigger.cron && !item.trigger.scheduleExpr) item.trigger.scheduleExpr = item.trigger.cron;
+      if (item.trigger.scheduleExpr && !item.trigger.cron) item.trigger.cron = item.trigger.scheduleExpr;
       item.nextRun = item.trigger.type === 'schedule' ? calculateNextRun(item.trigger.scheduleExpr) : null;
     }
-    if (updates.actions !== undefined) item.actions = updates.actions;
+    if (updates.steps !== undefined) {
+      item.steps = updates.steps;
+      if (!updates.actions) item.actions = updates.steps;
+    }
+    if (updates.actions !== undefined) {
+      item.actions = updates.actions;
+      if (!updates.steps) item.steps = updates.actions;
+    }
     if (updates.enabled !== undefined) {
       item.enabled = Boolean(updates.enabled);
+      item.status = item.enabled ? 'active' : 'paused';
       if (item.enabled && item.trigger.type === 'schedule' && !item.nextRun) {
-        item.nextRun = calculateNextRun(item.trigger.scheduleExpr);
+        item.nextRun = calculateNextRun(item.trigger.scheduleExpr || item.trigger.cron);
       }
+    }
+    if (updates.status !== undefined) {
+      item.status = updates.status;
+      item.enabled = updates.status !== 'paused';
     }
     if (updates.approvalPolicy !== undefined) item.approvalPolicy = updates.approvalPolicy;
     item.updatedAt = Date.now();
@@ -275,11 +302,33 @@ export class MesniumAutomationEngine {
   }
 
   enableAutomation(id) {
-    return this.updateAutomation(id, { enabled: true });
+    return this.updateAutomation(id, { enabled: true, status: 'active' });
   }
 
   disableAutomation(id) {
-    return this.updateAutomation(id, { enabled: false });
+    return this.updateAutomation(id, { enabled: false, status: 'paused' });
+  }
+
+  pauseAutomation(id) {
+    return this.disableAutomation(id);
+  }
+
+  resumeAutomation(id) {
+    return this.enableAutomation(id);
+  }
+
+  recordRunHistory(runRecord) {
+    const auto = this.automations.get(runRecord.automationId);
+    if (auto) {
+      if (!Array.isArray(auto.history)) auto.history = [];
+      auto.history.unshift(runRecord);
+      auto.lastRun = runRecord;
+      this.save();
+    }
+  }
+
+  getRunHistory(automationId, limit = 50) {
+    return this.listRuns({ automationId, limit });
   }
 
   duplicateAutomation(id) {
@@ -401,9 +450,17 @@ export class MesniumAutomationEngine {
 
       // Execute defined action steps
       const results = [];
+      let hasWaitingApproval = false;
       for (const act of (auto.actions || [])) {
         const stepResult = await this._executeActionStep(act, auto, runtimePayload);
         results.push(stepResult);
+        if (stepResult && (stepResult.status === 'pending_approval' || stepResult.status === 'waiting_approval' || stepResult.waitingApproval)) {
+          hasWaitingApproval = true;
+        }
+      }
+
+      if (hasWaitingApproval) {
+        runStatus = 'waiting_approval';
       }
 
       // Format clean, human-readable synthesized output
@@ -419,9 +476,9 @@ export class MesniumAutomationEngine {
       const completedAt = Date.now();
 
       runRecord.status = runStatus;
-      runRecord.completedAt = completedAt;
+      runRecord.completedAt = runStatus === 'waiting_approval' ? null : completedAt;
       runRecord.durationMs = durationMs;
-      runRecord.output = runStatus === 'success' ? synthesizedOutput : null;
+      runRecord.output = synthesizedOutput;
       runRecord.result = runRecord.output; // Backward compatibility
       runRecord.error = runError;
 
@@ -429,7 +486,7 @@ export class MesniumAutomationEngine {
         timestamp: startTime,
         status: runStatus,
         durationMs,
-        result: runRecord.output || (runError ? `Failed: ${runError}` : 'Completed'),
+        result: runRecord.output || (runError ? `Failed: ${runError}` : (runStatus === 'waiting_approval' ? 'Waiting for operator approval in Approvals Hub' : 'Completed')),
         error: runError,
         runId,
         resultChatId: runRecord.resultChatId
@@ -447,11 +504,11 @@ export class MesniumAutomationEngine {
         agentId: auto.id,
         agentName: auto.name,
         prompt: `Triggered Automation: ${auto.name} [${triggerSource}]`,
-        status: runStatus === 'success' ? 'completed' : 'failed',
+        status: runStatus === 'waiting_approval' ? 'waiting_approval' : (runStatus === 'success' ? 'completed' : 'failed'),
         result: runRecord.output || runError,
         error: runError,
         startedAt: startTime,
-        completedAt,
+        completedAt: runStatus === 'waiting_approval' ? null : completedAt,
         resultChatId: runRecord.resultChatId
       });
     }
@@ -461,7 +518,8 @@ export class MesniumAutomationEngine {
     }
 
     return {
-      success: true,
+      success: runStatus !== 'failed',
+      status: runStatus === 'success' ? 'completed' : runStatus,
       runId,
       automationId: auto.id,
       automationName: auto.name,
@@ -505,7 +563,7 @@ export class MesniumAutomationEngine {
     // Check for lead outreach drafting
     const leadStep = stepResults.find(s => s && s.step === 'leads.research_and_draft');
     if (leadStep) {
-      return `### 🎯 High-Value Lead Outreach\n\n- **Status:** ${leadStep.status === 'pending_approval' ? 'Draft Prepared (Awaiting Operator Approval)' : 'Completed'}\n- **Target:** \`${leadStep.target || 'lead_enterprise@acme-corp.com'}\`\n- **Subject:** *Tailored Automation Partnership for Acme Corp*\n- **Action:** Created personalized proposal draft in pending approvals queue.`;
+      return `### 🎯 High-Value Lead Outreach\n\n- **Status:** ${leadStep.status === 'pending_approval' ? 'Draft Prepared (Awaiting Operator Approval)' : 'Completed'}\n- **Target:** \`${leadStep.target || 'lead_prospect@business.com'}\`\n- **Subject:** *Tailored Automation Partnership for Enterprise Client*\n- **Action:** Created personalized proposal draft in pending approvals queue.`;
     }
 
     // Check for topic monitors
@@ -575,28 +633,50 @@ export class MesniumAutomationEngine {
 
     // 3. Lead Research & Drafting
     if (actType === 'leads.research_and_draft') {
+      const target = payload.target || payload.to || 'lead_prospect@business.com';
       if (action.approvalPolicy === 'human_approval' || automation.approvalPolicy === 'human_approval') {
         const actionProposal = this.gatekeeper.proposeAction({
           agentId: 'agent_sales_assistant',
           actionType: ActionType.EMAIL_DRAFT,
           title: `Personalized Outreach Draft: Enterprise Lead`,
-          target: 'lead_enterprise@acme-corp.com',
+          target,
           payload: {
-            to: 'lead_enterprise@acme-corp.com',
-            subject: 'Tailored Automation Partnership for Acme Corp',
-            body: 'Hello Team,\n\nWe identified high-value alignment with your operational workflows.'
+            to: target,
+            subject: payload.subject || 'Tailored Automation Partnership for Enterprise Growth',
+            body: payload.body || 'Hello Team,\n\nWe identified high-value alignment with your operational workflows.'
           },
           description: 'Automated outreach draft generated by High-Value Lead Outreach automation.'
         });
         return {
           step: 'leads.research_and_draft',
           status: 'pending_approval',
-          target: 'lead_enterprise@acme-corp.com',
+          target,
           actionId: actionProposal.id,
           message: 'Created outreach draft in pending approvals queue.'
         };
       }
       return { step: 'leads.research_and_draft', status: 'completed' };
+    }
+
+    // 4. Unified Agent Runtime Execution (agent.run)
+    if (actType === 'agent.run' || actType === 'agent_run') {
+      const { getSharedAgentRuntime } = await import('../mesnium-agents/runtime.js');
+      const runtime = getSharedAgentRuntime();
+      const agentId = payload.agentId || action.agentId || 'agent_operations';
+      const prompt = payload.prompt || action.prompt || `Execute automated task for workflow: ${automation.name}`;
+      const agentResult = await runtime.runAgent(agentId, prompt, payload.options || {});
+      
+      return {
+        step: 'agent.run',
+        agentId,
+        status: agentResult.status,
+        waitingApproval: agentResult.status === 'waiting_approval' || (agentResult.pendingApprovals && agentResult.pendingApprovals.length > 0),
+        pendingApprovals: agentResult.pendingApprovals || [],
+        summary: agentResult.summary,
+        deliverables: agentResult.deliverables,
+        findings: agentResult.findings,
+        rawResult: agentResult
+      };
     }
 
     // Fallback: Generic action execution

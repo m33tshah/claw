@@ -77,7 +77,7 @@ export const mesniumRpcHandlers = {
 
       const integrationReg = getSharedIntegrationRegistry();
       const accounts = integrationReg.listAccounts();
-      const connectedCount = accounts.filter(a => a.status === 'CONNECTED').length;
+      const connectedCount = accounts.filter(a => a.status === 'connected' || a.status === 'CONNECTED' || a.status === IntegrationStatus.CONNECTED).length;
 
       const gatekeeper = getSharedActionGatekeeper();
       const pendingApprovals = gatekeeper.listPendingApprovals(workspaceId);
@@ -122,15 +122,68 @@ export const mesniumRpcHandlers = {
 
   'mesnium.agents.run': async ({ params = {}, respond }) => {
     try {
-      if (!params.agentId) throw new Error('Agent ID is required.');
-      if (!params.prompt) throw new Error('Task prompt is required.');
+      const agentId = params.agentId || params.id;
+      if (!agentId) throw new Error('Agent ID is required.');
+      const tool = params.tool || params.toolName;
+      if (!params.prompt && !tool) throw new Error('Task prompt or tool is required.');
       
       await getOrInitKnowledgeManager(params.workspaceId || 'default');
       const runtime = getSharedAgentRuntime();
-      const result = await runtime.runAgent(params.agentId, params.prompt, {
+      const result = await runtime.runAgent(agentId, params.prompt || `Direct tool invocation: ${tool}`, {
+        workspaceId: params.workspaceId || 'default',
+        tool: tool,
+        params: params.params || params.toolParams
+      });
+      respond(true, result);
+    } catch (err) {
+      respond(false, void 0, { message: err.message });
+    }
+  },
+
+  'mesnium.agents.executeTool': async ({ params = {}, respond }) => {
+    try {
+      const agentId = params.agentId || params.id;
+      if (!agentId) throw new Error('Agent ID is required.');
+      const tool = params.tool || params.toolName;
+      if (!tool) throw new Error('Tool name is required.');
+      const agent = getSharedAgentRegistry().getAgent(agentId, params.workspaceId || 'default');
+      if (!agent) throw new Error(`Agent not found: ${agentId}`);
+      
+      const runtime = getSharedAgentRuntime();
+      const result = await runtime.executeToolForAgent(agent, tool, params.params || params.toolParams || {}, {
         workspaceId: params.workspaceId || 'default'
       });
       respond(true, result);
+    } catch (err) {
+      respond(false, void 0, { message: err.message });
+    }
+  },
+
+  'mesnium.agents.pause': async ({ params = {}, respond }) => {
+    try {
+      if (!params.id) throw new Error('Agent ID is required.');
+      const agent = getSharedAgentRegistry().pauseAgent(params.id);
+      respond(true, { agent });
+    } catch (err) {
+      respond(false, void 0, { message: err.message });
+    }
+  },
+
+  'mesnium.agents.resume': async ({ params = {}, respond }) => {
+    try {
+      if (!params.id) throw new Error('Agent ID is required.');
+      const agent = getSharedAgentRegistry().resumeAgent(params.id);
+      respond(true, { agent });
+    } catch (err) {
+      respond(false, void 0, { message: err.message });
+    }
+  },
+
+  'mesnium.agents.update': async ({ params = {}, respond }) => {
+    try {
+      if (!params.id) throw new Error('Agent ID is required.');
+      const agent = getSharedAgentRegistry().updateAgent(params.id, params);
+      respond(true, { agent });
     } catch (err) {
       respond(false, void 0, { message: err.message });
     }
@@ -150,6 +203,7 @@ export const mesniumRpcHandlers = {
         model: { provider: 'google', modelId: 'gemini-2.5-flash' },
         knowledgeScopes: ['all'],
         capabilities: params.capabilities || ['knowledge.search'],
+        allowedTools: params.allowedTools || ['knowledge_search'],
         permissions: { read: true, propose: true, execute: false },
         status: 'active',
         workspaceId: params.workspaceId || 'default'
@@ -283,7 +337,10 @@ export const mesniumRpcHandlers = {
         params.triggerSource || 'manual',
         params.resultChatId || null
       );
-      respond(true, result);
+      respond(true, {
+        ...result,
+        status: result.status || (result.success ? 'completed' : 'failed')
+      });
     } catch (err) {
       respond(false, void 0, { message: err.message });
     }
@@ -315,7 +372,11 @@ export const mesniumRpcHandlers = {
   'mesnium.automations.pause': async ({ params = {}, respond }) => {
     try {
       if (!params.id) throw new Error('Automation ID is required.');
-      const automation = getSharedAutomationEngine().disableAutomation(params.id);
+      const raw = getSharedAutomationEngine().disableAutomation(params.id);
+      const automation = {
+        ...raw,
+        status: 'paused'
+      };
       respond(true, { automation });
     } catch (err) {
       respond(false, void 0, { message: err.message });
@@ -325,7 +386,11 @@ export const mesniumRpcHandlers = {
   'mesnium.automations.resume': async ({ params = {}, respond }) => {
     try {
       if (!params.id) throw new Error('Automation ID is required.');
-      const automation = getSharedAutomationEngine().enableAutomation(params.id);
+      const raw = getSharedAutomationEngine().enableAutomation(params.id);
+      const automation = {
+        ...raw,
+        status: 'active'
+      };
       respond(true, { automation });
     } catch (err) {
       respond(false, void 0, { message: err.message });
