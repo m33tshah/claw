@@ -3209,7 +3209,12 @@
         astMsg._thinking = false;
         cleanup();
       } else if (payload.state === 'error') {
-        astMsg.text = accumulatedText || 'I ran into a problem completing that request. Please try again.';
+        const errDesc = String(payload.errorMessage || payload.error?.message || payload.error || '');
+        if (errDesc.includes('billing') || errDesc.includes('MODEL_PROVIDER_REQUIRES_SETUP') || errDesc.includes('403')) {
+          astMsg.text = '⚠️ **AI Model Setup Required**\n\nThe configured AI model provider requires billing or configuration. To resolve this, please configure a standard Gemini API key (`GEMINI_API_KEY`), Anthropic, OpenAI, or OpenRouter in Settings.';
+        } else {
+          astMsg.text = accumulatedText || 'I ran into a problem completing that request. Please check Settings or verify your model provider.';
+        }
         astMsg._error = true;
         astMsg._thinking = false;
         cleanup();

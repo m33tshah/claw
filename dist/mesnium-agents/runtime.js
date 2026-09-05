@@ -5,9 +5,11 @@
  * User/Automation Request
  *   → Selected Specialized Agent
  *   → Validates agent status & server-side tool permissions (agent.allowedTools)
- *   → Deterministic tool dispatch / Agent reasoning over permitted tools
+ *   → Resolves configured Model Provider (strictly from OpenClaw configuration/auth)
+ *   → Autonomous Multi-Step Tool Calling (model receives ONLY agent.allowedTools schemas)
+ *   → Server-side boundary check on every tool call (no unauthorized expansion)
  *   → Action Gatekeeper approval policy for consequential mutations
- *   → Tool execution
+ *   → Tool execution & tool results fed back to model
  *   → Canonical structured result contract
  *   → Activity Ledger audit trail
  *   → Presentation boundary sanitization (zero leaks of tokens, IDs, or absolute paths)
@@ -34,6 +36,195 @@ import { LocalFilesystemTool } from '../filesystem/agent-tool.js';
 function normalizeTool(t) {
   return CapabilityToolMapping[t] || t;
 }
+
+/**
+ * Provider Availability & Operational States
+ */
+export const ProviderState = {
+  NOT_CONFIGURED: 'NOT_CONFIGURED',
+  CONFIGURED: 'CONFIGURED',
+  AUTHENTICATION_FAILED: 'AUTHENTICATION_FAILED',
+  BILLING_REQUIRED: 'BILLING_REQUIRED',
+  QUOTA_EXCEEDED: 'QUOTA_EXCEEDED',
+  UNAVAILABLE: 'UNAVAILABLE',
+  READY: 'READY'
+};
+
+/**
+ * Normalized Canonical Tool Schemas for Model Tool Calling
+ * Defines parameters and descriptions for all 15 canonical tools.
+ */
+export const CanonicalToolDefinitions = {
+  [CanonicalTools.KNOWLEDGE_SEARCH]: {
+    name: CanonicalTools.KNOWLEDGE_SEARCH,
+    description: 'Search indexed workspace documents, uploaded company knowledge, and business guides.',
+    parameters: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: 'Search keywords or question to match in indexed business documents' },
+        maxResults: { type: 'number', description: 'Maximum number of grounded excerpts to return (default 5)' }
+      },
+      required: ['query']
+    }
+  },
+  [CanonicalTools.GMAIL_SEARCH]: {
+    name: CanonicalTools.GMAIL_SEARCH,
+    description: 'Search Gmail inbox and messages using standard query syntax (e.g. from, subject, newer_than).',
+    parameters: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: 'Gmail query string, e.g. "from:prospect@example.com" or "newer_than:7d"' },
+        maxResults: { type: 'number', description: 'Max number of emails to retrieve (default 5)' }
+      },
+      required: ['query']
+    }
+  },
+  [CanonicalTools.GMAIL_DRAFT]: {
+    name: CanonicalTools.GMAIL_DRAFT,
+    description: 'Create an email draft in Gmail with recipient, subject line, and draft message body.',
+    parameters: {
+      type: 'object',
+      properties: {
+        to: { type: 'string', description: 'Recipient email address' },
+        subject: { type: 'string', description: 'Email subject line' },
+        body: { type: 'string', description: 'Email body text or HTML' }
+      },
+      required: ['to', 'subject', 'body']
+    }
+  },
+  [CanonicalTools.GMAIL_SEND]: {
+    name: CanonicalTools.GMAIL_SEND,
+    description: 'Send an email to an external recipient. (Requires human Gatekeeper approval).',
+    parameters: {
+      type: 'object',
+      properties: {
+        to: { type: 'string', description: 'Recipient email address' },
+        subject: { type: 'string', description: 'Email subject line' },
+        body: { type: 'string', description: 'Email message content to send' }
+      },
+      required: ['to', 'subject', 'body']
+    }
+  },
+  [CanonicalTools.CALENDAR_AGENDA]: {
+    name: CanonicalTools.CALENDAR_AGENDA,
+    description: 'Retrieve upcoming calendar appointments, meetings, and schedule details.',
+    parameters: {
+      type: 'object',
+      properties: {
+        maxResults: { type: 'number', description: 'Maximum number of events to return (default 5)' }
+      }
+    }
+  },
+  [CanonicalTools.CALENDAR_CREATE_EVENT]: {
+    name: CanonicalTools.CALENDAR_CREATE_EVENT,
+    description: 'Schedule a new calendar appointment or meeting. (Requires human Gatekeeper approval).',
+    parameters: {
+      type: 'object',
+      properties: {
+        summary: { type: 'string', description: 'Event title or subject' },
+        start: { type: 'string', description: 'Start time (ISO 8601 or natural time string)' },
+        end: { type: 'string', description: 'End time (ISO 8601 or natural time string)' },
+        description: { type: 'string', description: 'Meeting description or notes' }
+      },
+      required: ['summary', 'start']
+    }
+  },
+  [CanonicalTools.GOOGLE_DRIVE_SEARCH]: {
+    name: CanonicalTools.GOOGLE_DRIVE_SEARCH,
+    description: 'Search files and documents stored in Google Drive.',
+    parameters: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: 'Filename, keyword, or Drive query expression' },
+        maxResults: { type: 'number', description: 'Max number of files to return (default 5)' }
+      },
+      required: ['query']
+    }
+  },
+  [CanonicalTools.GOOGLE_DRIVE_UPLOAD]: {
+    name: CanonicalTools.GOOGLE_DRIVE_UPLOAD,
+    description: 'Upload a file or document to Google Drive. (Requires human Gatekeeper approval).',
+    parameters: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', description: 'Filename to create in Drive' },
+        content: { type: 'string', description: 'Text or file content' },
+        folder: { type: 'string', description: 'Optional target folder name or ID' }
+      },
+      required: ['name', 'content']
+    }
+  },
+  [CanonicalTools.LOCAL_FILESYSTEM]: {
+    name: CanonicalTools.LOCAL_FILESYSTEM,
+    description: 'Read, inspect, or organize local workspace filesystem files.',
+    parameters: {
+      type: 'object',
+      properties: {
+        action: { type: 'string', enum: ['search', 'read', 'list', 'inspect'], description: 'Filesystem operation' },
+        path: { type: 'string', description: 'File or folder path' },
+        query: { type: 'string', description: 'Search term for files' }
+      }
+    }
+  },
+  [CanonicalTools.WEB_SEARCH]: {
+    name: CanonicalTools.WEB_SEARCH,
+    description: 'Perform web research for market context, competitive info, or company facts.',
+    parameters: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: 'Search query for web research' }
+      },
+      required: ['query']
+    }
+  },
+  [CanonicalTools.BRIEFING_GENERATE]: {
+    name: CanonicalTools.BRIEFING_GENERATE,
+    description: 'Generate an executive daily briefing synthesizing communications, schedule, and operations.',
+    parameters: {
+      type: 'object',
+      properties: {}
+    }
+  },
+  [CanonicalTools.MONITORS_RUN]: {
+    name: CanonicalTools.MONITORS_RUN,
+    description: 'Execute active research monitors across web sources and synthesize findings.',
+    parameters: {
+      type: 'object',
+      properties: {}
+    }
+  },
+  [CanonicalTools.AUTOMATIONS_LIST]: {
+    name: CanonicalTools.AUTOMATIONS_LIST,
+    description: 'List configured background automations and scheduled workflows.',
+    parameters: {
+      type: 'object',
+      properties: {}
+    }
+  },
+  [CanonicalTools.AUTOMATIONS_RUN]: {
+    name: CanonicalTools.AUTOMATIONS_RUN,
+    description: 'Trigger a background automation workflow by ID.',
+    parameters: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', description: 'Automation rule ID to execute' },
+        payload: { type: 'object', description: 'Optional payload parameters' }
+      },
+      required: ['id']
+    }
+  },
+  [CanonicalTools.CALENDAR_DELETE_EVENT]: {
+    name: CanonicalTools.CALENDAR_DELETE_EVENT,
+    description: 'Delete or cancel an existing calendar appointment.',
+    parameters: {
+      type: 'object',
+      properties: {
+        eventId: { type: 'string', description: 'Calendar event ID to remove' }
+      },
+      required: ['eventId']
+    }
+  }
+};
 
 export class MesniumAgentRuntime {
   constructor() {
@@ -78,7 +269,6 @@ export class MesniumAgentRuntime {
     }
 
     const toolCallId = `call_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
-
 
     // Route consequential mutations through Action Gatekeeper
     if (toolName === CanonicalTools.GMAIL_SEND) {
@@ -187,7 +377,6 @@ export class MesniumAgentRuntime {
       }
 
       case CanonicalTools.WEB_SEARCH: {
-        // Built-in web research query
         return {
           toolCallId,
           content: [{
@@ -262,8 +451,114 @@ export class MesniumAgentRuntime {
   }
 
   /**
+   * Resolves the configured model provider for an agent.
+   * Path:
+   * 1. Test harness override (strictly for tests with _isTestHarness flag)
+   * 2. Agent-specific authorized model override
+   * 3. OpenClaw configured model
+   * 4. Provider health classification (distinguishing NOT_CONFIGURED, BILLING_REQUIRED, READY)
+   */
+  async resolveModelForAgent(agent, options = {}) {
+    // 1. Test harness override (Strictly protected for automated testing)
+    const isTestHarness = Boolean(options.__testModelOverride && (options._isTestHarness || process.env.NODE_ENV === 'test' || options._allowTestModel));
+    if (isTestHarness) {
+      return {
+        state: ProviderState.READY,
+        model: options.__testModelOverride,
+        auth: options.__testAuthOverride || {}
+      };
+    }
+
+    // 2. Resolve via OpenClaw config
+    let cfg = null;
+    try {
+      const { a: loadConfig } = await import('../io-By0s-a_s.js');
+      cfg = loadConfig();
+    } catch (_) {}
+
+    try {
+      const { r: prepareSimpleCompletionModelForAgent } = await import('../simple-completion-runtime-DNwDdfY4.js');
+      const prep = await prepareSimpleCompletionModelForAgent({
+        cfg,
+        agentId: 'main'
+      });
+
+      if (prep?.error || !prep?.model) {
+        return {
+          state: ProviderState.NOT_CONFIGURED,
+          error: prep?.error || 'No AI model provider is configured.'
+        };
+      }
+
+      const model = prep.model;
+      const auth = prep.auth || {};
+
+      // 3. Health & Readiness Classification
+      if (model.provider === 'google-vertex') {
+        const project = process.env.GOOGLE_CLOUD_PROJECT || process.env.GCLOUD_PROJECT;
+        // Check if Vertex is bound to an unbilled or problematic GCP project
+        if (!project || project.startsWith('gen-lang-client-')) {
+          return {
+            state: ProviderState.BILLING_REQUIRED,
+            model,
+            auth,
+            error: 'Google Vertex AI requires billing to be enabled on your Google Cloud project.'
+          };
+        }
+      }
+
+      if (model.provider === 'google' || model.api === 'google-generative-ai') {
+        const key = auth.apiKey || process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
+        if (!key) {
+          return {
+            state: ProviderState.NOT_CONFIGURED,
+            model,
+            auth,
+            error: 'GEMINI_API_KEY is not configured.'
+          };
+        }
+      }
+
+      if (model.provider === 'anthropic') {
+        const key = auth.apiKey || process.env.ANTHROPIC_API_KEY;
+        if (!key) {
+          return {
+            state: ProviderState.NOT_CONFIGURED,
+            model,
+            auth,
+            error: 'ANTHROPIC_API_KEY is not configured.'
+          };
+        }
+      }
+
+      if (model.provider === 'openai') {
+        const key = auth.apiKey || process.env.OPENAI_API_KEY;
+        if (!key) {
+          return {
+            state: ProviderState.NOT_CONFIGURED,
+            model,
+            auth,
+            error: 'OPENAI_API_KEY is not configured.'
+          };
+        }
+      }
+
+      return {
+        state: ProviderState.READY,
+        model,
+        auth
+      };
+    } catch (err) {
+      return {
+        state: ProviderState.NOT_CONFIGURED,
+        error: err.message || String(err)
+      };
+    }
+  }
+
+  /**
    * Run a task prompt or structured action through a specific Mesnium Agent.
-   * Dynamic tool discovery strictly filtered to agent.allowedTools.
+   * Supports both deterministic tool execution and autonomous multi-step model tool calling.
    */
   async runAgent(agentId, prompt, options = {}) {
     const startTime = Date.now();
@@ -274,10 +569,10 @@ export class MesniumAgentRuntime {
     }
 
     // 1. Agent Status Guard
-    if (agent.status === AgentStatus.PAUSED) {
+    if (agent.status === AgentStatus.PAUSED || agent.status === 'paused') {
       throw new Error(`Cannot run agent "${agent.name}": Agent is currently paused. Please resume the agent to execute tasks.`);
     }
-    if (agent.status === AgentStatus.DRAFT) {
+    if (agent.status === AgentStatus.DRAFT || agent.status === 'draft') {
       throw new Error(`Cannot run agent "${agent.name}": Agent is in draft mode. Please activate the agent first.`);
     }
 
@@ -301,13 +596,16 @@ export class MesniumAgentRuntime {
     const warnings = [];
     const failures = [];
     const nextRecommendedActions = [];
+    let finalModelText = '';
+    let reachedMaxSteps = false;
+    const maxSteps = Math.min(options.maxSteps || 5, 10);
 
     try {
-      // 2. Direct tool invocation check (Deterministic execution)
+      // 2. Deterministic Direct Tool Execution (if options.tool is explicitly provided)
       if (options.tool) {
-        const directTool = options.tool;
+        const directTool = normalizeTool(options.tool);
         if (!allowedTools.includes(directTool)) {
-          throw new Error(`Permission Denied: Agent "${agent.name}" is not permitted to execute tool "${directTool}".`);
+          throw new Error(`Permission Denied: Agent "${agent.name}" is not permitted to execute tool "${options.tool}".`);
         }
         const toolRes = await this.executeToolForAgent(agent, directTool, options.params || {});
         actionsPerformed.push({ tool: directTool, description: `Executed ${directTool}`, timestamp: Date.now() });
@@ -320,57 +618,195 @@ export class MesniumAgentRuntime {
           });
         }
       } else {
-        // 3. Structured Agent Reasoning & Plan Execution over Permitted Tools
-        // An agent determines what tools to invoke from its permitted set.
-        
-        // A. Knowledge Retrieval (if permitted)
-        if (allowedTools.includes(CanonicalTools.KNOWLEDGE_SEARCH)) {
-          const km = getSharedKnowledgeManager();
-          if (km) {
-            const hits = await km.search(prompt, {
-              workspaceId: agent.workspaceId || 'default',
-              limit: 4,
-              minScore: 0.25
+        // 3. Autonomous Model-Driven Tool Calling over Permitted Tools
+        const providerResolution = await this.resolveModelForAgent(agent, options);
+
+        // Honest error handling: If no working provider exists, do not fabricate results!
+        if (providerResolution.state !== ProviderState.READY) {
+          let setupMsg = '';
+          if (providerResolution.state === ProviderState.BILLING_REQUIRED) {
+            setupMsg = 'MODEL_PROVIDER_REQUIRES_SETUP: The AI model provider (Google Vertex AI) requires billing to be enabled on your Google Cloud project. To resolve this without enabling Google Cloud billing, configure a standard Gemini API key (GEMINI_API_KEY), Anthropic, OpenAI, or OpenRouter in Settings.';
+          } else if (providerResolution.state === ProviderState.AUTHENTICATION_FAILED) {
+            setupMsg = `MODEL_PROVIDER_REQUIRES_SETUP: AI model provider authentication failed. Please verify your credentials in Settings.`;
+          } else if (providerResolution.state === ProviderState.QUOTA_EXCEEDED) {
+            setupMsg = `MODEL_PROVIDER_REQUIRES_SETUP: AI model provider quota exceeded. Please check provider limits or configure an alternative provider in Settings.`;
+          } else {
+            setupMsg = `MODEL_PROVIDER_REQUIRES_SETUP: No active AI model provider is configured. Please configure an API key (e.g. Gemini, Anthropic, or OpenAI) in Settings to enable natural-language agent reasoning.`;
+          }
+          throw new Error(setupMsg);
+        }
+
+        // Model receives ONLY tools in agent.allowedTools
+        const modelTools = allowedTools
+          .map(t => CanonicalToolDefinitions[t])
+          .filter(Boolean);
+
+        const { complete } = await import('../plugin-sdk/llm.js');
+        const messages = [{ role: 'user', content: prompt }];
+        finalModelText = '';
+        let isWaitingApproval = false;
+        reachedMaxSteps = false;
+
+        // Multi-Step Tool Execution Loop
+        for (let step = 0; step < maxSteps; step++) {
+          let response;
+          try {
+            response = await complete(providerResolution.model, {
+              systemPrompt: agent.instructions || `You are ${agent.name}.`,
+              messages,
+              tools: modelTools
+            }, {
+              apiKey: providerResolution.auth?.apiKey
             });
-            if (hits && hits.length > 0) {
-              systemsAccessed.push('Workspace Knowledge');
-              actionsPerformed.push({
-                tool: CanonicalTools.KNOWLEDGE_SEARCH,
-                description: `Retrieved ${hits.length} grounded excerpt(s)`,
+          } catch (completeErr) {
+            const errStr = completeErr.message || String(completeErr);
+            if (errStr.toLowerCase().includes('billing') || errStr.includes('403')) {
+              throw new Error('MODEL_PROVIDER_REQUIRES_SETUP: Google Vertex AI requires billing to be enabled on your Google Cloud project. Please configure a standard Gemini API key (GEMINI_API_KEY), Anthropic, OpenAI, or OpenRouter in Settings.');
+            }
+            throw new Error(`Model provider error: ${this._sanitizeForPresentation(errStr)}`);
+          }
+
+          if (response?.stopReason === 'error') {
+            const errStr = response.errorMessage || 'Provider stream error';
+            if (errStr.toLowerCase().includes('billing') || errStr.includes('403') || errStr.includes('Cannot convert undefined or null')) {
+              throw new Error('MODEL_PROVIDER_REQUIRES_SETUP: Google Vertex AI requires billing to be enabled on your Google Cloud project. Please configure a standard Gemini API key (GEMINI_API_KEY), Anthropic, OpenAI, or OpenRouter in Settings.');
+            }
+            throw new Error(`Model provider error: ${this._sanitizeForPresentation(errStr)}`);
+          }
+
+          const toolCalls = (response?.content || []).filter(c => c.type === 'toolCall');
+          const textBlocks = (response?.content || []).filter(c => c.type === 'text');
+          if (textBlocks.length > 0) {
+            finalModelText = textBlocks.map(t => t.text).join('\n\n').trim();
+          }
+
+          if (!toolCalls || toolCalls.length === 0) {
+            // Model concluded reasoning with final answer
+            break;
+          }
+
+          // Record assistant turn in context
+          messages.push(response);
+
+          // Process tool calls emitted by the model
+          for (const toolCall of toolCalls) {
+            const requestedTool = normalizeTool(toolCall.name);
+            const callId = toolCall.id || `call_${Date.now()}`;
+
+            // 1. ABSOLUTE SERVER-SIDE PERMISSION BOUNDARY
+            // Reject any tool not explicitly in agent.allowedTools
+            if (!allowedTools.includes(requestedTool)) {
+              const permError = `Permission Denied: Agent "${agent.name}" is not permitted to execute tool "${toolCall.name}".`;
+              this.activity.recordRun({
+                agentId: agent.id,
+                agentName: agent.name,
+                prompt: `Tool Execution: ${toolCall.name}`,
+                status: 'rejected',
+                error: permError,
+                startedAt: Date.now(),
+                completedAt: Date.now()
+              });
+              failures.push({ code: 'PERMISSION_DENIED', tool: toolCall.name, message: permError });
+              messages.push({
+                role: 'toolResult',
+                toolCallId: callId,
+                toolName: toolCall.name,
+                content: [{ type: 'text', text: permError }],
+                isError: true,
                 timestamp: Date.now()
               });
-              hits.forEach((h, idx) => {
-                if (h.filename) sourcesConsulted.push(h.filename);
-                const loc = h.provenance?.location ? ` (${h.provenance.location})` : '';
-                findings.push(`[${h.filename}${loc}]: ${h.content}`);
+              continue;
+            }
+
+            // 2. ACTION GATEKEEPER (CONSEQUENTIAL MUTATIONS)
+            // Consequential actions must NOT execute automatically; defer to Approvals Hub
+            if (requestedTool === CanonicalTools.GMAIL_SEND ||
+                requestedTool === CanonicalTools.CALENDAR_CREATE_EVENT ||
+                requestedTool === CanonicalTools.GOOGLE_DRIVE_UPLOAD) {
+              
+              const gateRes = await this.executeToolForAgent(agent, requestedTool, toolCall.arguments || {});
+              actionsPerformed.push({ tool: requestedTool, description: `Proposed ${requestedTool} via Gatekeeper`, timestamp: Date.now() });
+              if (gateRes.waitingApproval) {
+                pendingApprovals.push({
+                  actionId: gateRes.actionId,
+                  actionType: gateRes.proposal?.actionType || 'mutation',
+                  title: gateRes.proposal?.title || 'Action Pending Approval',
+                  target: gateRes.proposal?.target || ''
+                });
+                messages.push({
+                  role: 'toolResult',
+                  toolCallId: callId,
+                  toolName: toolCall.name,
+                  content: [{ type: 'text', text: `Action proposed and queued in Approvals Hub (Proposal ID: ${gateRes.actionId}). Execution is deferred awaiting human confirmation.` }],
+                  isError: false,
+                  timestamp: Date.now()
+                });
+                isWaitingApproval = true;
+              }
+              continue;
+            }
+
+            // 3. STANDARD PERMITTED TOOL EXECUTION
+            try {
+              const toolRes = await this.executeToolForAgent(agent, requestedTool, toolCall.arguments || {});
+              actionsPerformed.push({ tool: requestedTool, description: `Executed ${requestedTool}`, timestamp: Date.now() });
+              
+              let resultText = '';
+              if (toolRes.content?.[0]?.text) {
+                resultText = toolRes.content[0].text;
+              } else if (typeof toolRes === 'string') {
+                resultText = toolRes;
+              } else {
+                resultText = JSON.stringify(toolRes);
+              }
+              
+              findings.push(`${requestedTool}: ${resultText}`);
+              
+              if (requestedTool === CanonicalTools.KNOWLEDGE_SEARCH) {
+                systemsAccessed.push('Workspace Knowledge');
+                if (toolRes.sources) sourcesConsulted.push(...toolRes.sources);
+              } else if (requestedTool.includes('gmail')) {
+                systemsAccessed.push('Google Workspace (Gmail)');
+              } else if (requestedTool.includes('calendar')) {
+                systemsAccessed.push('Google Workspace (Calendar)');
+              } else if (requestedTool.includes('drive')) {
+                systemsAccessed.push('Google Workspace (Drive)');
+              } else if (requestedTool.includes('filesystem')) {
+                systemsAccessed.push('Workspace Filesystem');
+              } else if (requestedTool === CanonicalTools.WEB_SEARCH) {
+                systemsAccessed.push('Web Search');
+              }
+
+              messages.push({
+                role: 'toolResult',
+                toolCallId: callId,
+                toolName: toolCall.name,
+                content: [{ type: 'text', text: resultText }],
+                isError: false,
+                timestamp: Date.now()
+              });
+            } catch (toolErr) {
+              const sanitizedErrMsg = this._sanitizeForPresentation(toolErr.message || String(toolErr));
+              failures.push({ code: `${requestedTool.toUpperCase()}_ERROR`, message: sanitizedErrMsg });
+              messages.push({
+                role: 'toolResult',
+                toolCallId: callId,
+                toolName: toolCall.name,
+                content: [{ type: 'text', text: `Error executing ${requestedTool}: ${sanitizedErrMsg}` }],
+                isError: true,
+                timestamp: Date.now()
               });
             }
           }
-        }
 
-        // B. Structured Execution of Requested Tools (if options.tools or options.targetTools specified)
-        const targetTools = Array.isArray(options.tools) 
-          ? options.tools.map(normalizeTool).filter(t => allowedTools.includes(t))
-          : (Array.isArray(options.targetTools) ? options.targetTools.map(normalizeTool).filter(t => allowedTools.includes(t)) : []);
+          // User Requirement 8: If consequential action requested, stop loop and wait for human confirmation
+          if (isWaitingApproval) {
+            break;
+          }
 
-        for (const targetTool of targetTools) {
-          if (targetTool === CanonicalTools.KNOWLEDGE_SEARCH) continue; // already executed
-          try {
-            const toolParams = (options.toolParams && options.toolParams[targetTool]) || options.params || {};
-            const res = await this.executeToolForAgent(agent, targetTool, toolParams);
-            actionsPerformed.push({ tool: targetTool, description: `Executed ${targetTool}`, timestamp: Date.now() });
-            if (res.waitingApproval) {
-              pendingApprovals.push({
-                actionId: res.actionId,
-                actionType: res.proposal?.actionType || 'mutation',
-                title: res.proposal?.title || 'Action Pending Approval',
-                target: res.proposal?.target || ''
-              });
-            } else if (res.content?.[0]?.text) {
-              findings.push(`${targetTool}: ${res.content[0].text}`);
-            }
-          } catch (err) {
-            failures.push({ code: `${targetTool.toUpperCase()}_ERROR`, message: this._sanitizeForPresentation(err.message) });
+          if (step === maxSteps - 1) {
+            reachedMaxSteps = true;
+            warnings.push(`Maximum autonomous tool limit (${maxSteps} steps) reached. Execution stopped safely.`);
           }
         }
       }
@@ -378,13 +814,19 @@ export class MesniumAgentRuntime {
       // 4. Synthesize Canonical Structured Result Contract
       const endTime = Date.now();
       const durationMs = Math.max(1, endTime - startTime);
-      let status = pendingApprovals.length > 0 ? 'waiting_approval' : (failures.length > 0 && findings.length === 0 ? 'failed' : 'completed');
+      let status = pendingApprovals.length > 0 ? 'waiting_approval' : (reachedMaxSteps ? 'partial' : (failures.length > 0 && findings.length === 0 ? 'failed' : 'completed'));
 
       let summaryText = '';
-      if (findings.length > 0) {
-        summaryText = `Based on authorized business systems and knowledge:\n\n${findings.join('\n\n---\n\n')}`;
+      if (reachedMaxSteps) {
+        summaryText = finalModelText 
+          ? `${finalModelText}\n\n[Note: Execution stopped safely after reaching maximum autonomous limit of ${maxSteps} steps.]`
+          : `Execution reached maximum autonomous tool limit (${maxSteps} steps). Partial results obtained:\n\n${findings.join('\n\n---\n\n') || 'No intermediate deliverables completed before step limit.'}`;
+      } else if (finalModelText) {
+        summaryText = finalModelText;
       } else if (pendingApprovals.length > 0) {
-        summaryText = `Action proposed and awaiting your confirmation in the Approvals Hub.`;
+        summaryText = `Action proposed and awaiting your confirmation in the Approvals Hub: ${pendingApprovals.map(p => p.title).join(', ')}.`;
+      } else if (findings.length > 0) {
+        summaryText = `Based on authorized business systems and knowledge:\n\n${findings.join('\n\n---\n\n')}`;
       } else if (failures.length > 0) {
         summaryText = `Encountered an issue executing the task: ${failures.map(f => f.message).join('; ')}`;
       } else {
@@ -421,12 +863,13 @@ export class MesniumAgentRuntime {
 
       // 5. Update Activity Ledger
       this.activity.updateRun(activityRecord.id, {
-        status: status === 'waiting_approval' ? 'waiting_approval' : (status === 'completed' ? 'completed' : 'failed'),
+        status: status === 'waiting_approval' ? 'waiting_approval' : (status === 'completed' ? 'completed' : (status === 'partial' ? 'partial' : 'failed')),
         result: canonicalResult.summary,
         sourcesConsulted: canonicalResult.sourcesConsulted,
         toolsUsed: canonicalResult.toolsUsed,
         completedAt: endTime,
-        durationMs
+        durationMs,
+        error: status === 'partial' ? `Maximum autonomous tool limit (${maxSteps} steps) reached.` : null
       });
 
       return canonicalResult;
@@ -446,8 +889,9 @@ export class MesniumAgentRuntime {
 
   _sanitizeForPresentation(text) {
     if (!text || typeof text !== 'string') return '';
-    // Scrub absolute paths, internal IDs, and tokens
+    // Scrub absolute paths, GCP project IDs, internal IDs, and tokens
     return text
+      .replace(/gen-lang-client-[0-9]+/gi, '[project-id]')
       .replace(/[A-Z]:\\[^ \n\r\t"]+/g, '[local path]')
       .replace(/\/Users\/[^ \n\r\t"]+/g, '[local path]')
       .replace(/\/home\/[^ \n\r\t"]+/g, '[local path]')
@@ -457,6 +901,7 @@ export class MesniumAgentRuntime {
       .replace(/session_[0-9a-z_]+/g, '[session-id]')
       .replace(/token=[a-zA-Z0-9_\-]+/gi, 'token=[redacted]')
       .replace(/Bearer\s+[a-zA-Z0-9_\-\.]+/gi, 'Bearer [redacted]')
+      .replace(/\s+at\s+[^\n]+/g, '') // Scrub raw stack traces
       .trim();
   }
 }
@@ -477,4 +922,3 @@ export function runAgent(agentId, options, workspaceId) {
 export function executeToolForAgent(agentOrId, toolName, params, workspaceId) {
   return getSharedAgentRuntime().executeToolForAgent(agentOrId, toolName, params, workspaceId);
 }
-

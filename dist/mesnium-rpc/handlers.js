@@ -102,7 +102,9 @@ export const mesniumRpcHandlers = {
   // 2. Agents Management & Execution
   'mesnium.agents.list': async ({ params = {}, respond }) => {
     try {
-      const agents = getSharedAgentRegistry().listAgents(params.workspaceId || 'default');
+      const agents = getSharedAgentRegistry().listAgents(params.workspaceId || 'default', {
+        includeLegacy: Boolean(params.includeLegacy)
+      });
       respond(true, { agents });
     } catch (err) {
       respond(false, void 0, { message: err.message });
@@ -129,6 +131,7 @@ export const mesniumRpcHandlers = {
       
       await getOrInitKnowledgeManager(params.workspaceId || 'default');
       const runtime = getSharedAgentRuntime();
+      // Notice: Untrusted callers cannot supply arbitrary models/providers (no params.model bypass)
       const result = await runtime.runAgent(agentId, params.prompt || `Direct tool invocation: ${tool}`, {
         workspaceId: params.workspaceId || 'default',
         tool: tool,
@@ -136,7 +139,11 @@ export const mesniumRpcHandlers = {
       });
       respond(true, result);
     } catch (err) {
-      respond(false, void 0, { message: err.message });
+      const isProviderSetup = err.message && err.message.includes('MODEL_PROVIDER_REQUIRES_SETUP');
+      respond(false, void 0, { 
+        message: err.message,
+        code: isProviderSetup ? 'MODEL_PROVIDER_REQUIRES_SETUP' : 'AGENT_RUN_ERROR'
+      });
     }
   },
 

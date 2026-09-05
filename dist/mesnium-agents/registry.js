@@ -7,7 +7,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { AgentStatus, AgentRole, AgentCapability, CanonicalTools, PermissionMode } from './types.js';
+import { AgentStatus, AgentRole, AgentCapability, CanonicalTools, CapabilityToolMapping, PermissionMode } from './types.js';
 
 function getAgentsConfigPath() {
   const base = process.env.OPENCLAW_HOME || path.join(os.homedir(), '.openclaw');
@@ -30,6 +30,14 @@ export class MesniumAgentRegistry {
         if (Array.isArray(data.agents) && data.agents.length > 0) {
           this.agents.clear();
           for (const a of data.agents) {
+            // Tag legacy aliases
+            if (a.id === 'agent_research_assistant' || a.id === 'agent_sales_assistant') {
+              a.isLegacy = true;
+            }
+            // Remove hardcoded provider defaults from persisted agents
+            if (a.model?.provider === 'google' || a.model?.provider === 'google-vertex') {
+              a.model = null;
+            }
             this.agents.set(a.id, a);
           }
           // Ensure canonical specialized agents exist
@@ -39,6 +47,10 @@ export class MesniumAgentRegistry {
       } catch (_) {}
     }
     this.seedDefaultAgents();
+  }
+
+  _syncFromDisk() {
+    this.load();
   }
 
   save() {
@@ -74,7 +86,7 @@ export class MesniumAgentRegistry {
         description: 'Handles inbound business inquiries, answers questions using approved knowledge, captures leads, and books appointments.',
         purpose: 'Handle inbound business enquiries, answer questions with grounded knowledge, capture leads, and coordinate appointments.',
         instructions: 'You are the primary business receptionist. Respond professionally to customer inquiries using authorized company knowledge. Capture lead details accurately and check calendar availability for appointments. All appointment bookings and external emails require confirmation.',
-        model: { provider: 'google', modelId: 'gemini-2.5-flash' },
+        model: null, // Inherits configured model from OpenClaw
         knowledgeScopes: ['all'],
         allowedTools: [
           CanonicalTools.KNOWLEDGE_SEARCH,
@@ -111,7 +123,7 @@ export class MesniumAgentRegistry {
         description: 'Finds and qualifies leads, prepares targeted follow-ups, drafts sales communications, and checks meetings.',
         purpose: 'Qualify sales leads, research prospect context, prepare tailored email follow-ups, and coordinate prospect calls.',
         instructions: 'You are an autonomous sales development agent. Research prospects using company knowledge and web intelligence. Draft compelling, tailored follow-ups based on customer needs. Never send an email without operator approval.',
-        model: { provider: 'google', modelId: 'gemini-2.5-flash' },
+        model: null, // Inherits configured model from OpenClaw
         knowledgeScopes: ['all'],
         allowedTools: [
           CanonicalTools.KNOWLEDGE_SEARCH,
@@ -149,7 +161,7 @@ export class MesniumAgentRegistry {
         description: 'Conducts market and competitor research, analyzes data, drafts campaign content, and creates marketing summaries.',
         purpose: 'Research markets, analyze marketing materials, draft campaign proposals, and produce marketing reports.',
         instructions: 'You are a strategic marketing agent. Conduct in-depth research on competitors and market trends. Analyze indexed materials and files to draft campaign content and synthesis reports.',
-        model: { provider: 'google', modelId: 'gemini-2.5-pro' },
+        model: null, // Inherits configured model from OpenClaw
         knowledgeScopes: ['all'],
         allowedTools: [
           CanonicalTools.WEB_SEARCH,
@@ -182,7 +194,7 @@ export class MesniumAgentRegistry {
         description: 'Coordinates recurring operational tasks, manages authorized business files, proposes cleanups, and monitors systems.',
         purpose: 'Coordinate business operations, inspect local files, propose safe file reorganizations, and monitor background workflows.',
         instructions: 'You are a meticulous operations manager. Organize authorized business documents safely. Always propose changes and request confirmation before moving or modifying any files.',
-        model: { provider: 'google', modelId: 'gemini-2.5-flash' },
+        model: null, // Inherits configured model from OpenClaw
         knowledgeScopes: ['all'],
         allowedTools: [
           CanonicalTools.LOCAL_FILESYSTEM,
@@ -218,7 +230,7 @@ export class MesniumAgentRegistry {
         description: 'Synthesizes cross-system business intelligence, generates daily executive briefings, and tracks high-priority items.',
         purpose: 'Provide executive business intelligence, synthesize briefings across email and calendar, and track pending approvals.',
         instructions: 'You are the principal executive assistant. Synthesize actionable daily business intelligence across connected systems. Highlight pending approvals, unread customer communications, and upcoming schedule priorities.',
-        model: { provider: 'google', modelId: 'gemini-2.5-pro' },
+        model: null, // Inherits configured model from OpenClaw
         knowledgeScopes: ['all'],
         allowedTools: [
           CanonicalTools.KNOWLEDGE_SEARCH,
@@ -244,8 +256,7 @@ export class MesniumAgentRegistry {
         updatedAt: Date.now()
       },
 
-
-      // Backward compatibility aliases for existing test suites
+      // Backward compatibility aliases for existing test suites (Hidden from V1.2 UI)
       {
         id: 'agent_research_assistant',
         name: 'Research Assistant',
@@ -253,7 +264,7 @@ export class MesniumAgentRegistry {
         description: 'Researches business documents, market notes, and knowledge sources to synthesize clear, cited briefings.',
         purpose: 'Researches business documents, market notes, and knowledge sources.',
         instructions: 'You are a meticulous business research assistant. Always base your answers strictly on grounded knowledge from authorized sources. Quote exact metrics and cite source documents accurately.',
-        model: { provider: 'google', modelId: 'gemini-2.5-pro' },
+        model: null,
         knowledgeScopes: ['all'],
         allowedTools: [
           CanonicalTools.KNOWLEDGE_SEARCH,
@@ -269,6 +280,7 @@ export class MesniumAgentRegistry {
           [PermissionMode.EXECUTE]: false
         },
         status: AgentStatus.ACTIVE,
+        isLegacy: true,
         version: '1.1.0',
         workspaceId: 'default',
         createdAt: Date.now() - 86400000 * 4,
@@ -281,7 +293,7 @@ export class MesniumAgentRegistry {
         description: 'Assists with customer proposals, meeting agendas, and inbound communications.',
         purpose: 'Assists with customer proposals and communications.',
         instructions: 'You are an operations and sales assistant. Help draft communications, review upcoming meetings, and check spreadsheet figures. Never take destructive actions without explicit user confirmation.',
-        model: { provider: 'google', modelId: 'gemini-2.5-flash' },
+        model: null,
         knowledgeScopes: ['all'],
         allowedTools: [
           CanonicalTools.KNOWLEDGE_SEARCH,
@@ -299,6 +311,7 @@ export class MesniumAgentRegistry {
           [PermissionMode.EXECUTE]: false
         },
         status: AgentStatus.ACTIVE,
+        isLegacy: true,
         version: '1.1.0',
         workspaceId: 'default',
         createdAt: Date.now() - 86400000 * 4,
@@ -318,24 +331,20 @@ export class MesniumAgentRegistry {
   createAgent(data = {}) {
     if (!data.name || !data.name.trim()) throw new Error('Agent Name is required.');
     const id = data.id || `agent_${data.name.toLowerCase().replace(/[^a-z0-9]/g, '_')}_${Math.random().toString(36).slice(2, 6)}`;
-    const instructions = data.instructions && data.instructions.trim() 
-      ? data.instructions.trim() 
-      : 'You are a dedicated business assistant. Execute tasks accurately using authorized knowledge.';
-
-    // Ensure allowedTools is an array of strings
+    
     const allowedTools = Array.isArray(data.allowedTools) 
-      ? Array.from(new Set(data.allowedTools))
-      : (Array.isArray(data.capabilities) ? data.capabilities : [CanonicalTools.KNOWLEDGE_SEARCH]);
+      ? Array.from(new Set(data.allowedTools.map(t => CapabilityToolMapping[t] || t)))
+      : [CanonicalTools.KNOWLEDGE_SEARCH];
 
     const agent = {
       id,
       name: data.name.trim(),
       role: data.role || AgentRole.GENERAL,
       description: (data.description || '').trim(),
-      purpose: (data.purpose || data.description || `Specialized agent for ${data.name}`).trim(),
-      instructions,
-      model: data.model || { provider: 'google', modelId: 'gemini-2.5-flash' },
-      knowledgeScopes: Array.isArray(data.knowledgeScopes) ? Array.from(new Set(data.knowledgeScopes)) : ['all'],
+      purpose: (data.purpose || data.description || '').trim(),
+      instructions: (data.instructions || '').trim(),
+      model: data.model || null,
+      knowledgeScopes: Array.isArray(data.knowledgeScopes) ? data.knowledgeScopes : ['all'],
       allowedTools,
       capabilities: Array.isArray(data.capabilities) ? Array.from(new Set(data.capabilities)) : allowedTools,
       permissions: data.permissions || {
@@ -348,6 +357,7 @@ export class MesniumAgentRegistry {
       approvalPolicy: data.approvalPolicy || {},
       memoryPolicy: data.memoryPolicy || 'standard',
       status: data.status || AgentStatus.ACTIVE,
+      isLegacy: Boolean(data.isLegacy),
       version: data.version || '1.2.0',
       workspaceId: data.workspaceId || 'default',
       createdAt: data.createdAt || Date.now(),
@@ -382,13 +392,14 @@ export class MesniumAgentRegistry {
     if (updates.description !== undefined) existing.description = updates.description.trim();
     if (updates.purpose !== undefined) existing.purpose = updates.purpose.trim();
     if (updates.instructions !== undefined) existing.instructions = updates.instructions.trim();
-    if (updates.model !== undefined) existing.model = { ...existing.model, ...updates.model };
+    if (updates.model !== undefined) existing.model = updates.model;
     if (updates.knowledgeScopes !== undefined) existing.knowledgeScopes = Array.from(new Set(updates.knowledgeScopes));
     if (updates.allowedTools !== undefined) existing.allowedTools = Array.from(new Set(updates.allowedTools));
     if (updates.capabilities !== undefined) existing.capabilities = Array.from(new Set(updates.capabilities));
     if (updates.permissions !== undefined) existing.permissions = { ...existing.permissions, ...updates.permissions };
     if (updates.approvalPolicy !== undefined) existing.approvalPolicy = updates.approvalPolicy;
     if (updates.status !== undefined) existing.status = updates.status;
+    if (updates.isLegacy !== undefined) existing.isLegacy = Boolean(updates.isLegacy);
     
     existing.updatedAt = Date.now();
     this.save();
@@ -409,10 +420,14 @@ export class MesniumAgentRegistry {
     return deleted;
   }
 
-  listAgents(workspaceId = null) {
-    const list = Array.from(this.agents.values());
+  listAgents(workspaceId = null, options = {}) {
+    let list = Array.from(this.agents.values());
     if (workspaceId && workspaceId !== 'default') {
-      return list.filter(a => a.workspaceId === workspaceId || a.workspaceId === 'default');
+      list = list.filter(a => a.workspaceId === workspaceId || a.workspaceId === 'default');
+    }
+    // By default hide legacy agents from V1.2 UI
+    if (options.includeLegacy !== true) {
+      list = list.filter(a => !a.isLegacy);
     }
     return list;
   }
@@ -426,4 +441,3 @@ export function getSharedAgentRegistry() {
   }
   return sharedRegistry;
 }
-
