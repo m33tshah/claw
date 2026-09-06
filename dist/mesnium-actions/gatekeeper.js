@@ -11,6 +11,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { ActionType, ActionStatus, RiskLevel, computePayloadHash } from './types.js';
 import { getSharedActionPolicy } from './policy.js';
+import { describeAction } from './describe.js';
 import { getSharedAgentRegistry } from '../mesnium-agents/registry.js';
 import { getSharedActivityLedger } from '../mesnium-agents/activity.js';
 
@@ -112,17 +113,26 @@ export class MesniumActionGatekeeper {
     const riskLevel = policyResult.riskLevel;
     const approvalRequired = policyResult.requiresApproval;
 
+    // Derive deterministic human-readable display description (DISPLAY ONLY — NOT HASHED)
+    const displayDescription = describeAction(actionType, payload, {
+      agentName: agent.name,
+      agentId: agent.id,
+      title,
+      target
+    });
+
     const action = {
       id,
       agentId: agent.id,
       agentName: agent.name,
       workspaceId,
       actionType,
-      title: title || `${actionType} requested by ${agent.name}`,
-      description,
+      title: title || displayDescription.title || `${actionType} requested by ${agent.name}`,
+      description: description || displayDescription.summary,
       target,
       payload: { ...payload },
       payloadHash,
+      displayDescription,
       riskLevel,
       status: approvalRequired ? ActionStatus.PENDING_APPROVAL : ActionStatus.APPROVED,
       approvalRequired,
@@ -339,6 +349,14 @@ export class MesniumActionGatekeeper {
         return false;
       }
       if (workspaceId && a.workspaceId !== workspaceId && a.workspaceId !== 'default') return false;
+      if (!a.displayDescription) {
+        a.displayDescription = describeAction(a.actionType, a.payload, {
+          agentName: a.agentName,
+          agentId: a.agentId,
+          title: a.title,
+          target: a.target
+        });
+      }
       return true;
     });
     if (updated) this.save();
@@ -353,6 +371,16 @@ export class MesniumActionGatekeeper {
     let list = Array.from(this.actions.values());
     if (filter.status) list = list.filter(a => a.status === filter.status);
     if (filter.agentId) list = list.filter(a => a.agentId === filter.agentId);
+    for (const a of list) {
+      if (!a.displayDescription) {
+        a.displayDescription = describeAction(a.actionType, a.payload, {
+          agentName: a.agentName,
+          agentId: a.agentId,
+          title: a.title,
+          target: a.target
+        });
+      }
+    }
     return list;
   }
 
@@ -361,7 +389,16 @@ export class MesniumActionGatekeeper {
    */
   getAction(actionId) {
     this._syncFromDisk();
-    return this.actions.get(actionId) || null;
+    const action = this.actions.get(actionId);
+    if (action && !action.displayDescription) {
+      action.displayDescription = describeAction(action.actionType, action.payload, {
+        agentName: action.agentName,
+        agentId: action.agentId,
+        title: action.title,
+        target: action.target
+      });
+    }
+    return action || null;
   }
 }
 

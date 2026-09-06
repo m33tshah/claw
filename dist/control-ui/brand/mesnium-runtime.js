@@ -5337,16 +5337,31 @@
               ${approvals.map(app => `
                 <div class="approval-card" id="approval-${h(app.id)}">
                   <div class="approval-info">
-                    <span class="badge badge--warn">Requires Approval</span>
-                    <h4 style="margin:4px 0;">${h(app.title || app.actionType)}</h4>
-                    <p style="margin:6px 0 8px;font-size:13px;color:var(--text-secondary,#c0c0d0);">${h(app.description || 'Consequential business mutation awaiting operator confirmation.')}</p>
-                    <div style="font-size:12px;color:var(--muted,#747480);">
-                      Target: <code>${h(app.target || 'N/A')}</code>
-                      ${app.agentId ? ` · Agent: <strong>${h(app.agentId)}</strong>` : ''}
+                    <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+                      <span class="badge badge--warn">${h(app.riskBadge || 'Requires Approval')}</span>
+                      ${app.category ? `<span class="badge" style="background:#1c1c28;color:#a1a1aa;border:1px solid #28283a;text-transform:uppercase;font-size:10.5px;letter-spacing:0.04em;">${h(app.category)}</span>` : ''}
+                    </div>
+                    <h4 style="margin:0 0 6px;font-size:16px;color:#fff;font-weight:600;">${h(app.title || app.actionType)}</h4>
+                    <p style="margin:0 0 12px;font-size:13.5px;line-height:1.5;color:var(--text-secondary,#c4c4d4);">${h(app.summary || app.description || 'Consequential business mutation awaiting operator confirmation.')}</p>
+
+                    ${Array.isArray(app.details) && app.details.length > 0 ? `
+                      <div class="approval-details-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;background:rgba(255,255,255,0.02);border:1px solid #1f1f2c;border-radius:8px;padding:10px 14px;margin-bottom:12px;">
+                        ${app.details.map(d => `
+                          <div style="font-size:12px;">
+                            <div style="color:#71717a;font-size:10.5px;text-transform:uppercase;letter-spacing:0.03em;margin-bottom:2px;">${h(d.label)}</div>
+                            <div style="color:#e4e4e7;font-weight:500;word-break:break-word;">${h(d.value)}</div>
+                          </div>
+                        `).join('')}
+                      </div>
+                    ` : ''}
+
+                    <div style="font-size:12px;color:var(--muted,#747480);display:flex;gap:16px;align-items:center;">
+                      <span>Target: <code>${h(app.target || 'N/A')}</code></span>
+                      ${app.agentName || app.agentId ? `<span>Agent: <strong>${h(app.agentName || app.agentId)}</strong></span>` : ''}
                     </div>
                   </div>
-                  <div class="approval-actions" style="display:flex;gap:8px;align-items:center;">
-                    <button class="btn btn-primary btn-sm" data-approve="${h(app.id)}">Confirm & Execute</button>
+                  <div class="approval-actions" style="display:flex;gap:8px;align-items:center;margin-top:14px;">
+                    <button class="btn btn-primary btn-sm" data-approve="${h(app.id)}">${h(app.actionVerb ? 'Approve: ' + app.actionVerb : 'Confirm & Execute')}</button>
                     <button class="btn btn-secondary btn-sm" data-reject="${h(app.id)}">Reject</button>
                   </div>
                 </div>`).join('')}

@@ -409,7 +409,27 @@ export const mesniumRpcHandlers = {
   // 5. Action Gatekeeper Approvals
   'mesnium.approvals.list': async ({ params = {}, respond }) => {
     try {
-      const approvals = getSharedActionGatekeeper().listPendingApprovals(params.workspaceId || 'default');
+      const rawApprovals = getSharedActionGatekeeper().listPendingApprovals(params.workspaceId || 'default');
+      const approvals = rawApprovals.map(app => ({
+        id: app.id,
+        agentId: app.agentId,
+        agentName: app.agentName,
+        workspaceId: app.workspaceId,
+        actionType: app.actionType,
+        title: app.title,
+        description: app.description,
+        summary: app.displayDescription?.summary || app.description,
+        details: app.displayDescription?.details || [],
+        category: app.displayDescription?.category || 'system',
+        actionVerb: app.displayDescription?.actionVerb || 'Confirm Action',
+        riskBadge: app.displayDescription?.riskBadge || 'Requires Approval',
+        target: app.target,
+        riskLevel: app.riskLevel,
+        status: app.status,
+        approvalRequired: app.approvalRequired,
+        requestedAt: app.requestedAt,
+        expiresAt: app.expiresAt
+      }));
       respond(true, { approvals });
     } catch (err) {
       respond(false, void 0, { message: err.message });
