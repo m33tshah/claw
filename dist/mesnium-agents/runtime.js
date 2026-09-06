@@ -815,7 +815,11 @@ export class MesniumAgentRuntime {
 
     const rawAllowed = (Array.isArray(agent.allowedTools) ? agent.allowedTools : [])
       .concat(Array.isArray(agent.capabilities) ? agent.capabilities : []);
-    const allowedTools = Array.from(new Set(rawAllowed.map(normalizeTool)));
+    const baseAllowed = Array.from(new Set(rawAllowed.map(normalizeTool)));
+    // Anti-escalation: caller options.allowedTools can only restrict, never expand base permissions
+    const allowedTools = Array.isArray(options.allowedTools)
+      ? options.allowedTools.map(normalizeTool).filter(t => baseAllowed.includes(t))
+      : baseAllowed;
     const sourcesConsulted = [];
     const actionsPerformed = [];
     const systemsAccessed = [];

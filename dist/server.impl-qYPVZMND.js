@@ -849,6 +849,15 @@ function createGatewayHttpServer(opts) {
 				name: "gateway-probes",
 				run: () => handleGatewayProbeRequest(req, res, scopedRequestPath, resolvedAuthValue, trustedProxies, allowRealIpFallback, getReadiness)
 			}, {
+				name: "mesnium-public-inbound",
+				run: async () => {
+					const { handleMesniumPublicInboundRequest } = await import("./mesnium-public/inbound.js");
+					return handleMesniumPublicInboundRequest(req, res, {
+						trustedProxies,
+						allowRealIpFallback
+					});
+				}
+			}, {
 				name: "hooks",
 				run: () => handleHooksRequest(req, res)
 			}];

@@ -163,7 +163,9 @@ const coreGatewayHandlers = {
 			"mesnium.tasks.create",
 			"mesnium.tasks.update",
 			"mesnium.tasks.delete",
-			"mesnium.tasks.run"
+			"mesnium.tasks.run",
+			"mesnium.widget.config.get",
+			"mesnium.widget.config.set"
 		],
 		loadHandlers: loadMesniumHandlers
 	}),

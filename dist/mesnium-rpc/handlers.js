@@ -47,6 +47,7 @@ import { getSharedCredentialManager } from '../credentials/manager.js';
 import { getSharedMcpManager } from '../mcp/manager.js';
 import { getSharedCapabilityRegistry } from '../capabilities/registry.js';
 import { getSharedTaskManager } from '../mesnium-tasks/index.js';
+import { getSharedPublicTenantManager } from '../mesnium-public/tenants.js';
 
 let sharedKm = null;
 
@@ -1068,6 +1069,61 @@ export const mesniumRpcHandlers = {
       const tm = getSharedTaskManager();
       const result = await tm.runTask(params.id, params);
       respond(true, result);
+    } catch (err) {
+      respond(false, void 0, { message: err.message });
+    }
+  },
+
+  // 17. Website Widget Configuration
+  'mesnium.widget.config.get': async ({ params = {}, respond }) => {
+    try {
+      const workspaceId = params.workspaceId || 'default';
+      const tenantManager = getSharedPublicTenantManager();
+      const publicId = tenantManager.getPublicIdForWorkspace(workspaceId);
+      const tenant = tenantManager.getTenantByPublicId(publicId);
+      const host = params.host || 'http://localhost:18789';
+      const embedSnippet = `<script src="${host}/widget/mesnium-widget.js" data-org="${publicId}" defer></script>`;
+
+      respond(true, {
+        enabled: tenant?.enabled !== false,
+        publicId,
+        businessName: tenant?.businessName || 'Mesnium Business',
+        embedSnippet,
+        updatedAt: tenant?.updatedAt || Date.now()
+      });
+    } catch (err) {
+      respond(false, void 0, { message: err.message });
+    }
+  },
+
+  'mesnium.widget.config.set': async ({ params = {}, respond }) => {
+    try {
+      const workspaceId = params.workspaceId || 'default';
+      const tenantManager = getSharedPublicTenantManager();
+      let publicId = tenantManager.getPublicIdForWorkspace(workspaceId);
+
+      if (params.rotatePublicId) {
+        publicId = tenantManager.rotatePublicId(workspaceId);
+      }
+
+      if (typeof params.enabled === 'boolean' || typeof params.businessName === 'string') {
+        tenantManager.setTenantConfig(workspaceId, {
+          enabled: params.enabled,
+          businessName: params.businessName
+        });
+      }
+
+      const tenant = tenantManager.getTenantByPublicId(publicId);
+      const host = params.host || 'http://localhost:18789';
+      const embedSnippet = `<script src="${host}/widget/mesnium-widget.js" data-org="${publicId}" defer></script>`;
+
+      respond(true, {
+        enabled: tenant?.enabled !== false,
+        publicId,
+        businessName: tenant?.businessName || 'Mesnium Business',
+        embedSnippet,
+        updatedAt: tenant?.updatedAt || Date.now()
+      });
     } catch (err) {
       respond(false, void 0, { message: err.message });
     }
