@@ -73,11 +73,29 @@ export class MesniumMemoryManager {
     }
   }
 
-  listMemories(category = null) {
+  listMemories(categoryOrOptions = null) {
     const data = this._readData();
     let list = data.memories || [];
+    let category = null;
+    let workspaceId = null;
+    let agentId = null;
+
+    if (typeof categoryOrOptions === 'string') {
+      category = categoryOrOptions;
+    } else if (categoryOrOptions && typeof categoryOrOptions === 'object') {
+      category = categoryOrOptions.category || null;
+      workspaceId = categoryOrOptions.workspaceId || null;
+      agentId = categoryOrOptions.agentId || null;
+    }
+
+    if (workspaceId) {
+      list = list.filter(m => (m.workspaceId || 'default') === workspaceId);
+    }
     if (category) {
       list = list.filter(m => m.category === category);
+    }
+    if (agentId) {
+      list = list.filter(m => !m.agentId || m.agentId === agentId);
     }
     return list;
   }
@@ -95,8 +113,13 @@ export class MesniumMemoryManager {
 
     const data = this._readData();
     const id = item.id || `mem_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
+    const workspaceId = item.workspaceId || 'default';
+    const agentId = item.agentId || null;
+
     const newMemory = {
       id,
+      workspaceId,
+      agentId,
       category: item.category || 'general',
       key: String(item.key).trim(),
       value: String(item.value).trim(),
@@ -105,32 +128,40 @@ export class MesniumMemoryManager {
       updatedAt: Date.now()
     };
 
-    data.memories = (data.memories || []).filter(m => m.id !== id && m.key !== newMemory.key);
+    data.memories = (data.memories || []).filter(m => m.id !== id && !(m.key === newMemory.key && (m.workspaceId || 'default') === workspaceId));
     data.memories.unshift(newMemory);
     this._writeData(data);
     return newMemory;
   }
 
-  deleteMemory(id) {
+  deleteMemory(id, workspaceId = null) {
     const data = this._readData();
     const beforeCount = (data.memories || []).length;
-    data.memories = (data.memories || []).filter(m => m.id !== id);
+    data.memories = (data.memories || []).filter(m => {
+      if (m.id !== id) return true;
+      if (workspaceId && (m.workspaceId || 'default') !== workspaceId) return true;
+      return false;
+    });
     this._writeData(data);
     return { ok: true, deleted: beforeCount > data.memories.length };
   }
 
-  clearMemories() {
+  clearMemories(workspaceId = null) {
     const data = this._readData();
-    data.memories = [];
+    if (workspaceId) {
+      data.memories = (data.memories || []).filter(m => (m.workspaceId || 'default') !== workspaceId);
+    } else {
+      data.memories = [];
+    }
     this._writeData(data);
     return { ok: true, cleared: true };
   }
 
-  getMemoryContext() {
-    const memories = this.listMemories();
+  getMemoryContext(workspaceId = 'default', agentId = null) {
+    const memories = this.listMemories({ workspaceId, agentId });
     if (memories.length === 0) return '';
     const lines = memories.map(m => `- ${m.key}: ${m.value}`);
-    return `[User Preferences & Working Style]\n${lines.join('\n')}`;
+    return `[Mesnium Business & Working Memory (Workspace: ${workspaceId})]\n${lines.join('\n')}`;
   }
 }
 

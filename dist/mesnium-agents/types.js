@@ -42,7 +42,8 @@ export const CanonicalTools = {
   BRIEFING_GENERATE: 'briefing_generate',
   MONITORS_RUN: 'monitors_run',
   AUTOMATIONS_LIST: 'automations_list',
-  AUTOMATIONS_RUN: 'automations_run'
+  AUTOMATIONS_RUN: 'automations_run',
+  DELEGATE_AGENT: 'delegate_agent'
 };
 
 export const AgentCapability = {

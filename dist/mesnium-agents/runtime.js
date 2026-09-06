@@ -32,6 +32,7 @@ import {
   CalendarCreateTool 
 } from '../integrations/google/agent-tools.js';
 import { LocalFilesystemTool } from '../filesystem/agent-tool.js';
+import { getSharedMemoryManager } from '../mesnium-memory/index.js';
 
 function normalizeTool(t) {
   return CapabilityToolMapping[t] || t;
@@ -215,7 +216,7 @@ export const CanonicalToolDefinitions = {
   },
   [CanonicalTools.CALENDAR_DELETE_EVENT]: {
     name: CanonicalTools.CALENDAR_DELETE_EVENT,
-    description: 'Delete or cancel an existing calendar appointment.',
+    description: 'Delete or cancel an existing calendar appointment. (Requires human Gatekeeper approval).',
     parameters: {
       type: 'object',
       properties: {
@@ -223,14 +224,64 @@ export const CanonicalToolDefinitions = {
       },
       required: ['eventId']
     }
+  },
+  [CanonicalTools.DELEGATE_AGENT]: {
+    name: CanonicalTools.DELEGATE_AGENT,
+    description: 'Delegate a specialized business subtask to one of the locked Mesnium specialist agents (agent_receptionist, agent_sales, agent_marketing, agent_operations, agent_executive).',
+    parameters: {
+      type: 'object',
+      properties: {
+        targetAgentId: {
+          type: 'string',
+          enum: [
+            'agent_receptionist',
+            'agent_sales',
+            'agent_marketing',
+            'agent_operations',
+            'agent_executive'
+          ],
+          description: 'The target specialized agent ID to execute the subtask'
+        },
+        taskPrompt: {
+          type: 'string',
+          description: 'Detailed prompt instructions for the subagent'
+        }
+      },
+      required: ['targetAgentId', 'taskPrompt']
+    }
   }
 };
+
+/**
+ * Validates tool parameters strictly against canonical schema.
+ * Rejects missing required fields before execution.
+ */
+export function validateToolArguments(toolName, params = {}) {
+  const def = CanonicalToolDefinitions[toolName];
+  if (!def || !def.parameters) return { valid: true };
+  const required = def.parameters.required || [];
+  const missing = [];
+  for (const req of required) {
+    if (params[req] === undefined || params[req] === null || (typeof params[req] === 'string' && !params[req].trim())) {
+      missing.push(req);
+    }
+  }
+  if (missing.length > 0) {
+    return {
+      valid: false,
+      error: `Invalid arguments for tool "${toolName}": Missing required field(s): ${missing.join(', ')}.`
+    };
+  }
+  return { valid: true };
+}
 
 export class MesniumAgentRuntime {
   constructor() {
     this.registry = getSharedAgentRegistry();
     this.activity = getSharedActivityLedger();
     this.gatekeeper = getSharedActionGatekeeper();
+    this.memory = getSharedMemoryManager();
+    this._activeSubagents = 0;
   }
 
   /**
@@ -268,10 +319,16 @@ export class MesniumAgentRuntime {
       throw new Error(errMessage);
     }
 
+    // Server-side argument validation against canonical schema
+    const argValidation = validateToolArguments(canonicalName, params);
+    if (!argValidation.valid) {
+      throw new Error(argValidation.error);
+    }
+
     const toolCallId = `call_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
 
     // Route consequential mutations through Action Gatekeeper
-    if (toolName === CanonicalTools.GMAIL_SEND) {
+    if (canonicalName === CanonicalTools.GMAIL_SEND) {
       const proposal = this.gatekeeper.proposeAction({
         agentId: agent.id,
         workspaceId: agent.workspaceId || 'default',
@@ -290,7 +347,7 @@ export class MesniumAgentRuntime {
       };
     }
 
-    if (toolName === CanonicalTools.CALENDAR_CREATE_EVENT) {
+    if (canonicalName === CanonicalTools.CALENDAR_CREATE_EVENT) {
       const proposal = this.gatekeeper.proposeAction({
         agentId: agent.id,
         workspaceId: agent.workspaceId || 'default',
@@ -309,7 +366,26 @@ export class MesniumAgentRuntime {
       };
     }
 
-    if (toolName === CanonicalTools.GOOGLE_DRIVE_UPLOAD) {
+    if (canonicalName === CanonicalTools.CALENDAR_DELETE_EVENT) {
+      const proposal = this.gatekeeper.proposeAction({
+        agentId: agent.id,
+        workspaceId: agent.workspaceId || 'default',
+        actionType: ActionType.CALENDAR_DELETE,
+        title: `Delete Calendar Event: ${params.eventId}`,
+        description: `Removal of calendar event ID: ${params.eventId}`,
+        target: params.eventId || 'Calendar Event',
+        payload: { eventId: params.eventId }
+      });
+      return {
+        isConsequentialMutation: true,
+        waitingApproval: true,
+        actionId: proposal.id,
+        summary: `Calendar event deletion "${params.eventId}" proposed and queued in Approvals Hub.`,
+        proposal
+      };
+    }
+
+    if (canonicalName === CanonicalTools.GOOGLE_DRIVE_UPLOAD) {
       const proposal = this.gatekeeper.proposeAction({
         agentId: agent.id,
         workspaceId: agent.workspaceId || 'default',
@@ -324,6 +400,25 @@ export class MesniumAgentRuntime {
         waitingApproval: true,
         actionId: proposal.id,
         summary: `Drive upload for "${params.name}" proposed and queued in Approvals Hub.`,
+        proposal
+      };
+    }
+
+    if (canonicalName === CanonicalTools.LOCAL_FILESYSTEM && params.action === 'execute_organization') {
+      const proposal = this.gatekeeper.proposeAction({
+        agentId: agent.id,
+        workspaceId: agent.workspaceId || 'default',
+        actionType: ActionType.FILESYSTEM_ORGANIZE,
+        title: `Execute Filesystem Organization on ${params.folder || 'Desktop'}`,
+        description: `Move and reorganize local files in ${params.folder || 'Desktop'}`,
+        target: params.folder || 'Desktop',
+        payload: { folder: params.folder || 'Desktop', confirmed: true }
+      });
+      return {
+        isConsequentialMutation: true,
+        waitingApproval: true,
+        actionId: proposal.id,
+        summary: `Filesystem organization on "${params.folder || 'Desktop'}" proposed and queued in Approvals Hub.`,
         proposal
       };
     }
@@ -445,8 +540,78 @@ export class MesniumAgentRuntime {
         };
       }
 
+      case CanonicalTools.DELEGATE_AGENT: {
+        return await this.delegateSubtask(agent, params.targetAgentId, params.taskPrompt, options);
+      }
+
       default:
         throw new Error(`Unknown canonical tool: ${toolName}`);
+    }
+  }
+
+  /**
+   * Delegates a specialized subtask to one of the locked production agents.
+   * Enforces concurrency limits, anti-escalation, parent-child ledger tracking, and isolated sessions.
+   */
+  async delegateSubtask(parentAgent, targetAgentId, taskPrompt, options = {}) {
+    const targetAgent = this.registry.getAgent(targetAgentId, parentAgent.workspaceId || 'default');
+    if (!targetAgent) {
+      throw new Error(`Subagent delegation failed: Target agent "${targetAgentId}" not found.`);
+    }
+
+    if (targetAgent.status === AgentStatus.PAUSED || targetAgent.status === 'paused') {
+      throw new Error(`Cannot delegate to agent "${targetAgent.name}": Agent is currently paused.`);
+    }
+
+    // Anti-escalation check: Subagent must be one of the locked production agents or authorized custom agent
+    const { LOCKED_PRODUCTION_AGENT_IDS } = await import('./registry.js');
+    if (!LOCKED_PRODUCTION_AGENT_IDS.includes(targetAgent.id) && !targetAgent.isCustom) {
+      throw new Error(`Subagent delegation rejected: "${targetAgentId}" is not an authorized specialized agent.`);
+    }
+
+    // Concurrency limit enforcement (max 4 concurrent subagents)
+    const MAX_CONCURRENT_SUBAGENTS = 4;
+    if (this._activeSubagents >= MAX_CONCURRENT_SUBAGENTS) {
+      throw new Error(`Subagent concurrency limit reached (${MAX_CONCURRENT_SUBAGENTS} active). Please wait for active tasks to complete.`);
+    }
+
+    this._activeSubagents++;
+    const delegationRunId = `sub_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+
+    this.activity.recordRun({
+      agentId: parentAgent.id,
+      agentName: parentAgent.name,
+      prompt: `Delegated subtask to [${targetAgent.name}]: ${taskPrompt.slice(0, 80)}...`,
+      status: 'running',
+      startedAt: Date.now()
+    });
+
+    try {
+      // Execute subagent within its restricted allowedTools boundary
+      const subResult = await this.runAgent(targetAgent.id, taskPrompt, {
+        ...options,
+        _isSubagent: true,
+        parentAgentId: parentAgent.id,
+        runId: delegationRunId
+      });
+
+      return {
+        toolCallId: `call_del_${Date.now()}`,
+        delegatedTo: targetAgent.id,
+        delegatedAgentName: targetAgent.name,
+        status: subResult.status,
+        summary: subResult.summary,
+        deliverables: subResult.deliverables,
+        findings: subResult.findings,
+        actionsPerformed: subResult.actionsPerformed,
+        pendingApprovals: subResult.pendingApprovals,
+        content: [{
+          type: 'text',
+          text: `[Delegated to ${targetAgent.name} (${targetAgent.role})]: ${subResult.summary}`
+        }]
+      };
+    } finally {
+      this._activeSubagents = Math.max(0, this._activeSubagents - 1);
     }
   }
 
@@ -467,6 +632,12 @@ export class MesniumAgentRuntime {
         model: options.__testModelOverride,
         auth: options.__testAuthOverride || {}
       };
+    }
+
+    // Fast-path: return cached provider resolution if fresh (< 30s) unless refresh requested
+    const now = Date.now();
+    if (!options.refresh && this._cachedProviderResolution && (now - (this._cachedProviderResolutionTime || 0) < 30000)) {
+      return this._cachedProviderResolution;
     }
 
     // 2. Resolve via OpenClaw config
@@ -543,17 +714,75 @@ export class MesniumAgentRuntime {
         }
       }
 
-      return {
+      const res = {
         state: ProviderState.READY,
         model,
         auth
       };
+      this._cachedProviderResolution = res;
+      this._cachedProviderResolutionTime = Date.now();
+      return res;
     } catch (err) {
-      return {
+      const res = {
         state: ProviderState.NOT_CONFIGURED,
         error: err.message || String(err)
       };
+      this._cachedProviderResolution = res;
+      this._cachedProviderResolutionTime = Date.now();
+      return res;
     }
+  }
+
+  /**
+   * Diagnostic inspection of configured AI Model Provider readiness state.
+   * Answers: Is configured? Which provider? Auth valid? Billing required? Quota exceeded? Ready?
+   * Zero leakage of secrets, keys, or internal GCP project IDs.
+   */
+  async getProviderDiagnostics(options = {}) {
+    const dummyAgent = { id: 'agent_receptionist', name: 'AI Receptionist' };
+    const res = await this.resolveModelForAgent(dummyAgent, options);
+    const configured = res.state !== ProviderState.NOT_CONFIGURED && Boolean(res.model);
+    const providerName = res.model?.provider || res.model?.api || null;
+    const isReady = res.state === ProviderState.READY;
+    
+    let message = '';
+    switch (res.state) {
+      case ProviderState.READY:
+        message = `AI model provider is configured and operational (${providerName || 'frontier'}).`;
+        break;
+      case ProviderState.BILLING_REQUIRED:
+        message = 'AI provider not ready — Google Cloud verification/billing is pending on your Google Cloud project.';
+        break;
+      case ProviderState.AUTHENTICATION_FAILED:
+        message = 'AI provider authentication failed. Please check your credentials in Settings.';
+        break;
+      case ProviderState.QUOTA_EXCEEDED:
+        message = 'AI provider quota exceeded. Please check provider limits or configure an alternative key in Settings.';
+        break;
+      case ProviderState.UNAVAILABLE:
+        message = 'AI provider service is currently unavailable or unreachable.';
+        break;
+      case ProviderState.CONFIGURED:
+        message = `AI provider (${providerName || 'custom'}) is configured and verifying connectivity.`;
+        break;
+      case ProviderState.NOT_CONFIGURED:
+      default:
+        message = 'No AI model provider is configured. Please configure an API key (e.g. Gemini, Anthropic, or OpenAI) in Settings to enable natural-language reasoning.';
+        break;
+    }
+
+    return {
+      configured,
+      provider: providerName,
+      modelId: res.model?.id || null,
+      state: res.state,
+      isReady,
+      message,
+      details: {
+        authSource: res.auth?.source || null,
+        mode: res.auth?.mode || null
+      }
+    };
   }
 
   /**
@@ -642,6 +871,15 @@ export class MesniumAgentRuntime {
           .filter(Boolean);
 
         const { complete } = await import('../plugin-sdk/llm.js');
+        const memoryContext = this.memory?.getMemoryContext(agent.workspaceId || 'default', agent.id) || '';
+        let systemPrompt = agent.instructions || `You are ${agent.name}.`;
+        if (memoryContext) {
+          systemPrompt += `\n\n${memoryContext}`;
+        }
+        if (allowedTools.includes(CanonicalTools.KNOWLEDGE_SEARCH)) {
+          systemPrompt += `\n\n[Knowledge Retrieval]\nYou have access to the workspace knowledge base via \`knowledge_search\`. Retrieve authoritative document context when addressing questions regarding business data, company operations, or policies.`;
+        }
+
         const messages = [{ role: 'user', content: prompt }];
         finalModelText = '';
         let isWaitingApproval = false;
@@ -652,7 +890,7 @@ export class MesniumAgentRuntime {
           let response;
           try {
             response = await complete(providerResolution.model, {
-              systemPrompt: agent.instructions || `You are ${agent.name}.`,
+              systemPrompt,
               messages,
               tools: modelTools
             }, {
@@ -720,11 +958,16 @@ export class MesniumAgentRuntime {
 
             // 2. ACTION GATEKEEPER (CONSEQUENTIAL MUTATIONS)
             // Consequential actions must NOT execute automatically; defer to Approvals Hub
-            if (requestedTool === CanonicalTools.GMAIL_SEND ||
-                requestedTool === CanonicalTools.CALENDAR_CREATE_EVENT ||
-                requestedTool === CanonicalTools.GOOGLE_DRIVE_UPLOAD) {
-              
-              const gateRes = await this.executeToolForAgent(agent, requestedTool, toolCall.arguments || {});
+            const isConsequential = (
+              requestedTool === CanonicalTools.GMAIL_SEND ||
+              requestedTool === CanonicalTools.CALENDAR_CREATE_EVENT ||
+              requestedTool === CanonicalTools.CALENDAR_DELETE_EVENT ||
+              requestedTool === CanonicalTools.GOOGLE_DRIVE_UPLOAD ||
+              (requestedTool === CanonicalTools.LOCAL_FILESYSTEM && toolCall.arguments?.action === 'execute_organization')
+            );
+
+            if (isConsequential) {
+              const gateRes = await this.executeToolForAgent(agent, requestedTool, toolCall.arguments || {}, options);
               actionsPerformed.push({ tool: requestedTool, description: `Proposed ${requestedTool} via Gatekeeper`, timestamp: Date.now() });
               if (gateRes.waitingApproval) {
                 pendingApprovals.push({
@@ -748,7 +991,25 @@ export class MesniumAgentRuntime {
 
             // 3. STANDARD PERMITTED TOOL EXECUTION
             try {
-              const toolRes = await this.executeToolForAgent(agent, requestedTool, toolCall.arguments || {});
+              const toolRes = await this.executeToolForAgent(agent, requestedTool, toolCall.arguments || {}, options);
+              if (toolRes?.waitingApproval) {
+                pendingApprovals.push({
+                  actionId: toolRes.actionId,
+                  actionType: toolRes.proposal?.actionType || 'mutation',
+                  title: toolRes.proposal?.title || 'Action Pending Approval',
+                  target: toolRes.proposal?.target || ''
+                });
+                messages.push({
+                  role: 'toolResult',
+                  toolCallId: callId,
+                  toolName: toolCall.name,
+                  content: [{ type: 'text', text: `Action proposed and queued in Approvals Hub (Proposal ID: ${toolRes.actionId}). Execution is deferred awaiting human confirmation.` }],
+                  isError: false,
+                  timestamp: Date.now()
+                });
+                isWaitingApproval = true;
+                continue;
+              }
               actionsPerformed.push({ tool: requestedTool, description: `Executed ${requestedTool}`, timestamp: Date.now() });
               
               let resultText = '';

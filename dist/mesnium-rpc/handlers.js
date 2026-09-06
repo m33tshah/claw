@@ -991,5 +991,16 @@ export const mesniumRpcHandlers = {
     } catch (err) {
       respond(false, void 0, { message: err.message });
     }
+  },
+
+  // 17. Provider Readiness Diagnostics (Section 29)
+  'mesnium.provider.status': async ({ respond }) => {
+    try {
+      const runtime = getSharedAgentRuntime();
+      const status = await runtime.getProviderDiagnostics();
+      respond(true, status);
+    } catch (err) {
+      respond(false, void 0, { message: err.message });
+    }
   }
 };

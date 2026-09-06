@@ -636,7 +636,7 @@ export class MesniumAutomationEngine {
       const target = payload.target || payload.to || 'lead_prospect@business.com';
       if (action.approvalPolicy === 'human_approval' || automation.approvalPolicy === 'human_approval') {
         const actionProposal = this.gatekeeper.proposeAction({
-          agentId: 'agent_sales_assistant',
+          agentId: 'agent_sales',
           actionType: ActionType.EMAIL_DRAFT,
           title: `Personalized Outreach Draft: Enterprise Lead`,
           target,

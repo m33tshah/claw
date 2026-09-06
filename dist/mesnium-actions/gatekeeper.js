@@ -6,17 +6,74 @@
  * and idempotency guarantees.
  */
 
+import fs from 'node:fs';
+import path from 'node:path';
+import os from 'node:os';
 import { ActionType, ActionStatus, RiskLevel, computePayloadHash } from './types.js';
 import { getSharedActionPolicy } from './policy.js';
 import { getSharedAgentRegistry } from '../mesnium-agents/registry.js';
 import { getSharedActivityLedger } from '../mesnium-agents/activity.js';
 
+function getApprovalsFilePath() {
+  const base = process.env.OPENCLAW_HOME || path.join(os.homedir(), '.openclaw');
+  if (!fs.existsSync(base)) fs.mkdirSync(base, { recursive: true });
+  return path.join(base, 'mesnium_approvals.json');
+}
+
 export class MesniumActionGatekeeper {
-  constructor() {
+  constructor(options = {}) {
+    this.filePath = options.filePath || options.configPath || getApprovalsFilePath();
     this.actions = new Map(); // id -> Action
     this.policy = getSharedActionPolicy();
     this.agentRegistry = getSharedAgentRegistry();
     this.activityLedger = getSharedActivityLedger();
+    this.lastLoadedMtime = 0;
+    this.load();
+  }
+
+  _syncFromDisk() {
+    if (!fs.existsSync(this.filePath)) return;
+    try {
+      const stats = fs.statSync(this.filePath);
+      if (stats.mtimeMs > this.lastLoadedMtime) {
+        this.load();
+      }
+    } catch (_) {}
+  }
+
+  load() {
+    if (fs.existsSync(this.filePath)) {
+      try {
+        const raw = fs.readFileSync(this.filePath, 'utf8');
+        const data = JSON.parse(raw);
+        if (Array.isArray(data.actions)) {
+          this.actions.clear();
+          for (const act of data.actions) {
+            this.actions.set(act.id, act);
+          }
+          this.lastLoadedMtime = fs.statSync(this.filePath).mtimeMs;
+          return;
+        }
+      } catch (err) {
+        console.error('[Mesnium Action Gatekeeper] Failed to load approvals store:', err.message);
+      }
+    }
+  }
+
+  save() {
+    try {
+      const data = {
+        version: '1.2.0',
+        updatedAt: Date.now(),
+        actions: Array.from(this.actions.values())
+      };
+      fs.writeFileSync(this.filePath, JSON.stringify(data, null, 2), 'utf8');
+      if (fs.existsSync(this.filePath)) {
+        this.lastLoadedMtime = fs.statSync(this.filePath).mtimeMs;
+      }
+    } catch (err) {
+      console.error('[Mesnium Action Gatekeeper] Failed to save approvals store:', err.message);
+    }
   }
 
   /**
@@ -81,6 +138,7 @@ export class MesniumActionGatekeeper {
     };
 
     this.actions.set(id, action);
+    this.save();
 
     // Record in Activity Ledger
     this.activityLedger.recordRun({
@@ -99,11 +157,13 @@ export class MesniumActionGatekeeper {
    * Approve a pending action.
    */
   approveAction(actionId, approvedBy = 'User') {
+    this._syncFromDisk();
     const action = this.actions.get(actionId);
     if (!action) throw new Error(`Action not found: ${actionId}`);
 
     if (Date.now() > action.expiresAt) {
       action.status = ActionStatus.EXPIRED;
+      this.save();
       throw new Error('Cannot approve action: Action proposal has expired.');
     }
 
@@ -114,6 +174,7 @@ export class MesniumActionGatekeeper {
     action.status = ActionStatus.APPROVED;
     action.approvedBy = approvedBy;
     action.approvedAt = Date.now();
+    this.save();
 
     this.activityLedger.recordRun({
       agentId: action.agentId,
@@ -131,6 +192,7 @@ export class MesniumActionGatekeeper {
    * Reject a pending action.
    */
   rejectAction(actionId, reason = 'Rejected by user', rejectedBy = 'User') {
+    this._syncFromDisk();
     const action = this.actions.get(actionId);
     if (!action) throw new Error(`Action not found: ${actionId}`);
 
@@ -141,6 +203,7 @@ export class MesniumActionGatekeeper {
     action.status = ActionStatus.REJECTED;
     action.rejectedAt = Date.now();
     action.error = reason;
+    this.save();
 
     this.activityLedger.recordRun({
       agentId: action.agentId,
@@ -158,6 +221,7 @@ export class MesniumActionGatekeeper {
    * Execute an approved action with full security & integrity re-checks.
    */
   async executeAction(actionId, executorFn = null) {
+    this._syncFromDisk();
     const action = this.actions.get(actionId);
     if (!action) throw new Error(`Action not found: ${actionId}`);
 
@@ -166,6 +230,7 @@ export class MesniumActionGatekeeper {
     // 1. Check Expiration
     if (now > action.expiresAt) {
       action.status = ActionStatus.EXPIRED;
+      this.save();
       throw new Error(`Cannot execute action ${actionId}: Action has expired.`);
     }
 
@@ -184,6 +249,7 @@ export class MesniumActionGatekeeper {
     if (currentHash !== action.payloadHash) {
       action.status = ActionStatus.FAILED;
       action.error = 'Payload integrity violation: Action payload was modified after approval.';
+      this.save();
       throw new Error(`Execution blocked: Payload integrity violation. Action payload was modified after approval.`);
     }
 
@@ -193,6 +259,7 @@ export class MesniumActionGatekeeper {
     if (!policyResult.allowed) {
       action.status = ActionStatus.FAILED;
       action.error = policyResult.reason;
+      this.save();
       throw new Error(`Execution blocked: ${policyResult.reason}`);
     }
 
@@ -201,10 +268,12 @@ export class MesniumActionGatekeeper {
     if (!connResult.ready) {
       action.status = ActionStatus.FAILED;
       action.error = connResult.reason;
+      this.save();
       throw new Error(`Execution blocked: ${connResult.reason}`);
     }
 
     action.status = ActionStatus.EXECUTING;
+    this.save();
 
     try {
       let executionResult = null;
@@ -222,6 +291,7 @@ export class MesniumActionGatekeeper {
       action.status = ActionStatus.COMPLETED;
       action.executedAt = Date.now();
       action.result = executionResult;
+      this.save();
 
       this.activityLedger.recordRun({
         agentId: action.agentId,
@@ -238,6 +308,7 @@ export class MesniumActionGatekeeper {
     } catch (err) {
       action.status = ActionStatus.FAILED;
       action.error = err.message;
+      this.save();
 
       this.activityLedger.recordRun({
         agentId: action.agentId,
@@ -257,16 +328,20 @@ export class MesniumActionGatekeeper {
    * List pending actions awaiting human review.
    */
   listPendingApprovals(workspaceId = null) {
+    this._syncFromDisk();
     const now = Date.now();
+    let updated = false;
     const list = Array.from(this.actions.values()).filter(a => {
       if (a.status !== ActionStatus.PENDING_APPROVAL) return false;
       if (now > a.expiresAt) {
         a.status = ActionStatus.EXPIRED;
+        updated = true;
         return false;
       }
       if (workspaceId && a.workspaceId !== workspaceId && a.workspaceId !== 'default') return false;
       return true;
     });
+    if (updated) this.save();
     return list;
   }
 
@@ -274,10 +349,19 @@ export class MesniumActionGatekeeper {
    * List all actions in the store.
    */
   listActions(filter = {}) {
+    this._syncFromDisk();
     let list = Array.from(this.actions.values());
     if (filter.status) list = list.filter(a => a.status === filter.status);
     if (filter.agentId) list = list.filter(a => a.agentId === filter.agentId);
     return list;
+  }
+
+  /**
+   * Get an action proposal by ID.
+   */
+  getAction(actionId) {
+    this._syncFromDisk();
+    return this.actions.get(actionId) || null;
   }
 }
 

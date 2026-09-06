@@ -15,6 +15,14 @@ function getAgentsConfigPath() {
   return path.join(base, 'mesnium_agents.json');
 }
 
+export const LOCKED_PRODUCTION_AGENT_IDS = [
+  'agent_receptionist',
+  'agent_sales',
+  'agent_marketing',
+  'agent_operations',
+  'agent_executive'
+];
+
 export class MesniumAgentRegistry {
   constructor(options = {}) {
     this.configPath = options.configPath || getAgentsConfigPath();
@@ -30,8 +38,11 @@ export class MesniumAgentRegistry {
         if (Array.isArray(data.agents) && data.agents.length > 0) {
           this.agents.clear();
           for (const a of data.agents) {
-            // Tag legacy aliases
-            if (a.id === 'agent_research_assistant' || a.id === 'agent_sales_assistant') {
+            // Strictly enforce that any non-production or legacy agents are marked isLegacy
+            if (!LOCKED_PRODUCTION_AGENT_IDS.includes(a.id) && !a.isCustom) {
+              a.isLegacy = true;
+            }
+            if (a.id === 'agent_research_assistant' || a.id === 'agent_sales_assistant' || a.id === 'agent_financial_analyst' || a.id === 'agent_lead_outreach') {
               a.isLegacy = true;
             }
             // Remove hardcoded provider defaults from persisted agents
@@ -421,13 +432,14 @@ export class MesniumAgentRegistry {
   }
 
   listAgents(workspaceId = null, options = {}) {
+    this._syncFromDisk();
     let list = Array.from(this.agents.values());
     if (workspaceId && workspaceId !== 'default') {
       list = list.filter(a => a.workspaceId === workspaceId || a.workspaceId === 'default');
     }
-    // By default hide legacy agents from V1.2 UI
+    // By default hide legacy/extra agents; expose strictly the locked production agents unless explicitly configured otherwise
     if (options.includeLegacy !== true) {
-      list = list.filter(a => !a.isLegacy);
+      list = list.filter(a => !a.isLegacy && (LOCKED_PRODUCTION_AGENT_IDS.includes(a.id) || a.isCustom));
     }
     return list;
   }

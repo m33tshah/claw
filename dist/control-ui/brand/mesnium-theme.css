@@ -5293,4 +5293,157 @@ input:focus, textarea:focus, select:focus {
   color: var(--muted, #747480);
 }
 
+/* ─── SHARED BRAIN TOPOLOGICAL INSTRUMENT ────────────────────────────────── */
+.shared-brain-section {
+  background: #08080c;
+  border: 1px solid #1a1a24;
+  border-radius: 8px;
+  padding: 22px 24px;
+  margin-bottom: 28px;
+  position: relative;
+  overflow: hidden;
+}
+
+.shared-brain-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 18px;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.shared-brain-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.shared-brain-title {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #ceced6;
+  margin: 0;
+}
+
+.shared-brain-status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 9999px;
+  background: rgba(179, 61, 63, 0.1);
+  border: 1px solid rgba(179, 61, 63, 0.25);
+  font-size: 11px;
+  font-weight: 500;
+  color: #f28b82;
+  font-family: 'JetBrains Mono', monospace;
+}
+
+.shared-brain-status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #b33d3f;
+  display: inline-block;
+  animation: brainDotPulse 2.4s infinite ease-in-out;
+}
+
+.shared-brain-canvas-wrap {
+  width: 100%;
+  height: 220px;
+  position: relative;
+  background: #040407;
+  border: 1px solid #14141d;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.shared-brain-svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.brain-edge {
+  stroke: #181824;
+  stroke-width: 1.5px;
+  transition: stroke 0.3s ease;
+}
+
+.brain-edge--active {
+  stroke: #b33d3f;
+  stroke-dasharray: 6 4;
+  animation: brainEdgeDash 1.2s linear infinite;
+}
+
+.brain-node {
+  cursor: pointer;
+  transition: transform 0.2s ease;
+}
+
+.brain-node:hover {
+  filter: drop-shadow(0 0 8px rgba(179, 61, 63, 0.4));
+}
+
+.brain-node text {
+  font-family: 'Inter', sans-serif;
+  user-select: none;
+  pointer-events: none;
+}
+
+.shared-brain-telemetry {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid #14141d;
+}
+
+.brain-telemetry-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.brain-telemetry-label {
+  font-size: 11px;
+  font-weight: 500;
+  color: #686875;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.brain-telemetry-value {
+  font-size: 12px;
+  font-family: 'JetBrains Mono', monospace;
+  color: #ceced6;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+@keyframes brainDotPulse {
+  0%, 100% { transform: scale(1); opacity: 0.8; }
+  50% { transform: scale(1.3); opacity: 1; }
+}
+
+@keyframes brainEdgeDash {
+  to { stroke-dashoffset: -20; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .shared-brain-status-dot {
+    animation: none !important;
+  }
+  .brain-edge--active {
+    animation: none !important;
+    stroke-dasharray: none !important;
+  }
+}
+
+
 

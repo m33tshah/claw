@@ -17,7 +17,8 @@ export const ActionType = {
   CALENDAR_DRAFT: 'calendar.draft',
   CALENDAR_CREATE: 'calendar.create',
   CALENDAR_UPDATE: 'calendar.update',
-  CALENDAR_DELETE: 'calendar.delete'
+  CALENDAR_DELETE: 'calendar.delete',
+  FILESYSTEM_ORGANIZE: 'filesystem.organize'
 };
 
 export const RiskLevel = {

@@ -880,6 +880,104 @@
     `;
   }
 
+  // ─── SHARED BRAIN: TOPOLOGICAL RUNTIME INSTRUMENT ─────────────────────────
+  function renderSharedBrain() {
+    return `
+      <div class="shared-brain-section" id="shared-brain-instrument">
+        <div class="shared-brain-header">
+          <div class="shared-brain-title-wrap">
+            <span style="color:#b33d3f;">✦</span>
+            <h2 class="shared-brain-title">Shared Brain Topology</h2>
+          </div>
+          <div class="shared-brain-status-pill" id="brain-status-indicator">
+            <span class="shared-brain-status-dot"></span>
+            <span id="brain-status-text">SYSTEM CALIBRATED</span>
+          </div>
+        </div>
+
+        <div class="shared-brain-canvas-wrap">
+          <svg class="shared-brain-svg" viewBox="0 0 800 220" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Mesnium Shared Brain topological diagram">
+            <!-- Connecting Edges from Central Brain (400, 110) -->
+            <line x1="400" y1="110" x2="120" y2="55" class="brain-edge brain-edge-agents" id="edge-agents" />
+            <line x1="400" y1="110" x2="120" y2="165" class="brain-edge brain-edge-knowledge" id="edge-knowledge" />
+            <line x1="400" y1="110" x2="280" y2="185" class="brain-edge brain-edge-memory" id="edge-memory" />
+            <line x1="400" y1="110" x2="520" y2="185" class="brain-edge brain-edge-gatekeeper" id="edge-gatekeeper" />
+            <line x1="400" y1="110" x2="680" y2="55" class="brain-edge brain-edge-workflows" id="edge-workflows" />
+            <line x1="400" y1="110" x2="680" y2="165" class="brain-edge brain-edge-integrations" id="edge-integrations" />
+
+            <!-- Core Node: Mesnium Brain -->
+            <g class="brain-node brain-node-core" transform="translate(400, 110)">
+              <circle r="34" fill="#0c0c14" stroke="#b33d3f" stroke-width="2" />
+              <circle r="26" fill="rgba(179, 61, 63, 0.12)" />
+              <text text-anchor="middle" y="4" fill="#ffffff" font-size="11" font-weight="700" letter-spacing="1">BRAIN</text>
+            </g>
+
+            <!-- Satellite Node 1: Locked Agents -->
+            <g class="brain-node" transform="translate(120, 55)" onclick="window.navigateTo('agents')">
+              <circle r="22" fill="#0d0d12" stroke="#22222e" stroke-width="1.5" />
+              <text text-anchor="middle" y="-2" fill="#ceced6" font-size="10" font-weight="600">AGENTS</text>
+              <text text-anchor="middle" y="10" fill="#686875" font-size="8">5 Specialists</text>
+            </g>
+
+            <!-- Satellite Node 2: Knowledge Base RAG -->
+            <g class="brain-node" transform="translate(120, 165)" onclick="window.navigateTo('knowledge')">
+              <circle r="22" fill="#0d0d12" stroke="#22222e" stroke-width="1.5" />
+              <text text-anchor="middle" y="-2" fill="#ceced6" font-size="9" font-weight="600">KNOWLEDGE</text>
+              <text text-anchor="middle" y="10" fill="#686875" font-size="8">Corpora RAG</text>
+            </g>
+
+            <!-- Satellite Node 3: Shared Business Memory -->
+            <g class="brain-node" transform="translate(280, 185)" onclick="window.navigateTo('settings')">
+              <circle r="20" fill="#0d0d12" stroke="#22222e" stroke-width="1.5" />
+              <text text-anchor="middle" y="-2" fill="#ceced6" font-size="9" font-weight="600">MEMORY</text>
+              <text text-anchor="middle" y="9" fill="#686875" font-size="8">Tenant Scoped</text>
+            </g>
+
+            <!-- Satellite Node 4: Action Gatekeeper -->
+            <g class="brain-node" transform="translate(520, 185)" onclick="window.navigateTo('work')">
+              <circle r="20" fill="#0d0d12" stroke="#22222e" stroke-width="1.5" />
+              <text text-anchor="middle" y="-2" fill="#ceced6" font-size="9" font-weight="600">GATEKEEPER</text>
+              <text text-anchor="middle" y="9" fill="#f28b82" font-size="8">SHA-256 Armed</text>
+            </g>
+
+            <!-- Satellite Node 5: Persistent Workflows -->
+            <g class="brain-node" transform="translate(680, 55)" onclick="window.navigateTo('work')">
+              <circle r="22" fill="#0d0d12" stroke="#22222e" stroke-width="1.5" />
+              <text text-anchor="middle" y="-2" fill="#ceced6" font-size="9" font-weight="600">WORKFLOWS</text>
+              <text text-anchor="middle" y="10" fill="#686875" font-size="8">Automations</text>
+            </g>
+
+            <!-- Satellite Node 6: Integrations & Filesystem -->
+            <g class="brain-node" transform="translate(680, 165)" onclick="window.navigateTo('connections')">
+              <circle r="22" fill="#0d0d12" stroke="#22222e" stroke-width="1.5" />
+              <text text-anchor="middle" y="-2" fill="#ceced6" font-size="9" font-weight="600">SYSTEMS</text>
+              <text text-anchor="middle" y="10" fill="#686875" font-size="8">Google / FS</text>
+            </g>
+          </svg>
+        </div>
+
+        <div class="shared-brain-telemetry">
+          <div class="brain-telemetry-item">
+            <span class="brain-telemetry-label">Production Agents</span>
+            <span class="brain-telemetry-value"><span style="color:#4caf50;">●</span> 5 Locked Specialists</span>
+          </div>
+          <div class="brain-telemetry-item">
+            <span class="brain-telemetry-label">Security Gatekeeper</span>
+            <span class="brain-telemetry-value"><span style="color:#b33d3f;">●</span> Approvals Control Plane</span>
+          </div>
+          <div class="brain-telemetry-item">
+            <span class="brain-telemetry-label">Provider Health</span>
+            <span class="brain-telemetry-value" id="brain-telemetry-provider"><span style="color:#f28b82;">●</span> Readiness Diagnostic</span>
+          </div>
+          <div class="brain-telemetry-item">
+            <span class="brain-telemetry-label">Memory Boundary</span>
+            <span class="brain-telemetry-value"><span style="color:#4caf50;">●</span> Isolated Tenant Scope</span>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
   // ─── SURFACE: OVERVIEW ─────────────────────────────────────────────────────
   function surfaceOverview() {
     const hour = new Date().getHours();
@@ -941,6 +1039,8 @@
             </div>
           </div>
         </div>
+
+        ${renderSharedBrain()}
 
         <div class="overview-recent">
           <div class="section-header">
@@ -2141,6 +2241,37 @@
             actList.innerHTML = `<div class="empty-state"><p>No activity yet.</p></div>`;
           }
         }
+
+        // Update Shared Brain Live Topological State
+        const brainStatusText = document.getElementById('brain-status-text');
+        const edgeGatekeeper = document.getElementById('edge-gatekeeper');
+        const edgeAgents = document.getElementById('edge-agents');
+        
+        if (pending > 0) {
+          if (brainStatusText) brainStatusText.textContent = `GATEKEEPER: ${pending} PENDING APPROVAL`;
+          if (edgeGatekeeper) edgeGatekeeper.classList.add('brain-edge--active');
+        } else {
+          if (edgeGatekeeper) edgeGatekeeper.classList.remove('brain-edge--active');
+          if (brainStatusText) brainStatusText.textContent = 'SYSTEM CALIBRATED';
+        }
+
+        if (data.recentActivity && data.recentActivity.some(a => a.status === 'running')) {
+          const running = data.recentActivity.find(a => a.status === 'running');
+          if (brainStatusText) brainStatusText.textContent = `AGENT EXECUTING: ${h(running.agentName || 'Specialist')}`;
+          if (edgeAgents) edgeAgents.classList.add('brain-edge--active');
+        } else {
+          if (edgeAgents) edgeAgents.classList.remove('brain-edge--active');
+        }
+
+        MesniumClient.request('mesnium.provider.status')
+          .then(pStatus => {
+            const pEl = document.getElementById('brain-telemetry-provider');
+            if (pEl && pStatus) {
+              const dotColor = pStatus.isReady ? '#4caf50' : (pStatus.state === 'BILLING_REQUIRED' ? '#ff9800' : '#f28b82');
+              pEl.innerHTML = `<span style="color:${dotColor};">●</span> ${h(pStatus.state || 'CONFIGURED')}`;
+            }
+          })
+          .catch(() => {});
       })
       .catch(err => {
         console.warn('[Mesnium] Failed to load overview data:', err.message);

@@ -34,6 +34,7 @@ export class MesniumActionPolicy {
       case ActionType.CALENDAR_CREATE:
       case ActionType.CALENDAR_UPDATE:
       case ActionType.CALENDAR_DELETE:
+      case ActionType.FILESYSTEM_ORGANIZE:
         return RiskLevel.HIGH;
 
       default:
