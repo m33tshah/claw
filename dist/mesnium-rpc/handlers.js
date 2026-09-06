@@ -46,6 +46,7 @@ import { getCapabilitiesStatus } from '../mesnium-capabilities/status.js';
 import { getSharedCredentialManager } from '../credentials/manager.js';
 import { getSharedMcpManager } from '../mcp/manager.js';
 import { getSharedCapabilityRegistry } from '../capabilities/registry.js';
+import { getSharedTaskManager } from '../mesnium-tasks/index.js';
 
 let sharedKm = null;
 
@@ -999,6 +1000,74 @@ export const mesniumRpcHandlers = {
       const runtime = getSharedAgentRuntime();
       const status = await runtime.getProviderDiagnostics();
       respond(true, status);
+    } catch (err) {
+      respond(false, void 0, { message: err.message });
+    }
+  },
+
+  // 18. Persistent Tasks Engine (Section 10)
+  'mesnium.tasks.list': async ({ params = {}, respond }) => {
+    try {
+      const tm = getSharedTaskManager();
+      const tasks = tm.listTasks(params);
+      respond(true, { tasks });
+    } catch (err) {
+      respond(false, void 0, { message: err.message });
+    }
+  },
+
+  'mesnium.tasks.get': async ({ params = {}, respond }) => {
+    try {
+      if (!params.id) throw new Error('Task ID is required.');
+      const tm = getSharedTaskManager();
+      const task = tm.getTask(params.id, params.workspaceId || 'default');
+      if (!task) throw new Error(`Task not found: ${params.id}`);
+      respond(true, { task });
+    } catch (err) {
+      respond(false, void 0, { message: err.message });
+    }
+  },
+
+  'mesnium.tasks.create': async ({ params = {}, respond }) => {
+    try {
+      if (!params.title) throw new Error('Task title is required.');
+      const tm = getSharedTaskManager();
+      const task = tm.createTask(params);
+      respond(true, { task });
+    } catch (err) {
+      respond(false, void 0, { message: err.message });
+    }
+  },
+
+  'mesnium.tasks.update': async ({ params = {}, respond }) => {
+    try {
+      if (!params.id) throw new Error('Task ID is required.');
+      const tm = getSharedTaskManager();
+      const updates = params.updates || params;
+      const task = tm.updateTask(params.id, updates, params.workspaceId || 'default');
+      respond(true, { task });
+    } catch (err) {
+      respond(false, void 0, { message: err.message });
+    }
+  },
+
+  'mesnium.tasks.delete': async ({ params = {}, respond }) => {
+    try {
+      if (!params.id) throw new Error('Task ID is required.');
+      const tm = getSharedTaskManager();
+      const result = tm.deleteTask(params.id, params.workspaceId || 'default');
+      respond(true, result);
+    } catch (err) {
+      respond(false, void 0, { message: err.message });
+    }
+  },
+
+  'mesnium.tasks.run': async ({ params = {}, respond }) => {
+    try {
+      if (!params.id) throw new Error('Task ID is required.');
+      const tm = getSharedTaskManager();
+      const result = await tm.runTask(params.id, params);
+      respond(true, result);
     } catch (err) {
       respond(false, void 0, { message: err.message });
     }

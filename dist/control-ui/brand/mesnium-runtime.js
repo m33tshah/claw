@@ -20,17 +20,17 @@
 
   // ─── ROUTE MAP ─────────────────────────────────────────────────────────────
   const ROUTES = {
-    overview:    { title: 'Overview',     icon: 'home' },
-    chat:        { title: 'Chat',         icon: 'message-circle' },
-    agents:      { title: 'Agents',       icon: 'users' },
-    projects:    { title: 'Projects',     icon: 'folder' },
-    files:       { title: 'Files',        icon: 'folder' },
-    inbox:       { title: 'Inbox',        icon: 'inbox' },
-    work:        { title: 'Work',         icon: 'zap' },
-    knowledge:   { title: 'Knowledge',    icon: 'book-open' },
-    activity:    { title: 'Activity',     icon: 'activity' },
-    connections: { title: 'Connections',  icon: 'link' },
-    settings:    { title: 'Settings',     icon: 'settings' },
+    overview:    { title: 'Shared Brain',   icon: 'home' },
+    chat:        { title: 'Chief of Staff', icon: 'message-circle' },
+    agents:      { title: 'Workforce',      icon: 'users' },
+    projects:    { title: 'Projects',       icon: 'folder' },
+    files:       { title: 'Files',          icon: 'folder' },
+    inbox:       { title: 'Inbox',          icon: 'inbox' },
+    work:        { title: 'Work',           icon: 'zap' },
+    knowledge:   { title: 'Knowledge',      icon: 'book-open' },
+    activity:    { title: 'Activity',       icon: 'activity' },
+    connections: { title: 'Connections',    icon: 'link' },
+    settings:    { title: 'Settings',       icon: 'settings' },
   };
 
   // ─── WEBSOCKET RPC CLIENT (Self-contained, real-time event streaming) ───────
@@ -300,8 +300,12 @@
       silenceTimer: null
     },
     work: {
-      tab: 'all',          // 'all'|'running'|'scheduled'|'automated'|'completed'|'needs_approval'
+      section: 'tasks',    // 'tasks' | 'automations' | 'approvals'
+      taskFilter: 'all',   // 'all' | 'pending' | 'in_progress' | 'waiting_approval' | 'completed' | 'failed' | 'cancelled'
+      tab: 'all',
     },
+    activeAgentId: null,   // Currently viewed Agent Workspace (or null for Workforce grid)
+    settingsTab: 'providers', // 'workspace' | 'providers' | 'security' | 'system'
   };
 
   // Load lightweight UI state from localStorage (NO file base64 or message threads)
@@ -544,6 +548,19 @@
     const msg = typeof err === 'string' ? err : (err.message || String(err));
     const lower = msg.toLowerCase();
 
+    // Provider Readiness & Availability checks (Section 7, 15, 31)
+    if (lower.includes('model_provider_requires_setup') || lower.includes('billing_required') || lower.includes('billing is pending') || lower.includes('vertex ai requires billing')) {
+      return "AI provider not ready — Google Cloud verification/billing is pending on your Google Cloud project. You can also configure an alternative API key (Anthropic Claude, OpenAI ChatGPT, or Gemini) in Settings.";
+    }
+    if (lower.includes('not_configured') || lower.includes('no ai model provider is configured')) {
+      return "AI provider not configured. Please configure an API key (Claude, ChatGPT, or Gemini) in Settings to enable natural-language reasoning.";
+    }
+    if (lower.includes('quota_exceeded') || lower.includes('quota exceeded') || lower.includes('rate limit')) {
+      return "AI provider quota exceeded. Please verify your provider plan or configure an alternative key in Settings.";
+    }
+    if (lower.includes('authentication_failed') || lower.includes('invalid api key')) {
+      return "AI provider authentication failed. Please check your credentials in Settings.";
+    }
     if (lower.includes('enoent') || lower.includes('not found')) {
       return "I couldn't find that file or folder. Please verify the file exists.";
     }
@@ -562,6 +579,7 @@
     if (lower.includes('microphone') || lower.includes('not-allowed')) {
       return "Microphone access is not available. You can continue using text chat.";
     }
+    // Strict sanitization: never expose raw stack traces, internal paths or project IDs
     return "I couldn't complete that action right now. Please try again.";
   }
 
@@ -676,10 +694,108 @@
     return text;
   }
 
+  function renderStructuredResults(text) {
+    if (!text || typeof text !== 'string') return text;
+
+    // Detect ```json ... ``` code blocks
+    return text.replace(/```(?:json)?\s*([\s\S]*?)```/g, (match, jsonContent) => {
+      try {
+        const parsed = JSON.parse(jsonContent.trim());
+        // 1. Email list (Gmail search)
+        if (Array.isArray(parsed) && parsed.length > 0 && (parsed[0].subject !== undefined || parsed[0].from !== undefined || parsed[0].sender !== undefined)) {
+          return `
+            <div class="result-card result-card--email">
+              <div class="result-card-header">
+                <span class="result-card-title">✉️ Email Search Results (${parsed.length})</span>
+              </div>
+              <div class="result-items-list" style="display:flex;flex-direction:column;gap:8px;margin-top:8px;">
+                ${parsed.map(email => `
+                  <div class="result-item" style="padding:8px 10px;background:#0d0d14;border:1px solid #1a1a26;border-radius:6px;">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+                      <strong style="color:#ffffff;font-size:13px;">${h(email.subject || 'No Subject')}</strong>
+                      <span style="color:#747484;font-size:11px;">${h(email.date || email.timestamp || '')}</span>
+                    </div>
+                    <div style="font-size:12px;color:#9090a4;margin-bottom:4px;">From: <strong>${h(email.from || email.sender || 'Unknown')}</strong></div>
+                    ${email.snippet ? `<div style="font-size:12px;color:#c0c0d0;line-height:1.4;">${h(email.snippet)}</div>` : ''}
+                  </div>
+                `).join('')}
+              </div>
+            </div>`;
+        }
+
+        // 2. Calendar events list
+        if (Array.isArray(parsed) && parsed.length > 0 && (parsed[0].summary !== undefined || parsed[0].start !== undefined || parsed[0].event !== undefined)) {
+          return `
+            <div class="result-card result-card--calendar">
+              <div class="result-card-header">
+                <span class="result-card-title">📅 Calendar Schedule (${parsed.length})</span>
+              </div>
+              <div class="result-items-list" style="display:flex;flex-direction:column;gap:8px;margin-top:8px;">
+                ${parsed.map(ev => `
+                  <div class="result-item" style="padding:8px 10px;background:#0d0d14;border:1px solid #1a1a26;border-radius:6px;">
+                    <strong style="color:#ffffff;font-size:13px;">${h(ev.summary || ev.title || 'Meeting')}</strong>
+                    <div style="font-size:12px;color:#8ab4f8;margin-top:2px;">🕒 ${h(ev.start?.dateTime || ev.start || ev.date || 'TBD')}</div>
+                    ${ev.location ? `<div style="font-size:12px;color:#747484;margin-top:2px;">📍 ${h(ev.location)}</div>` : ''}
+                  </div>
+                `).join('')}
+              </div>
+            </div>`;
+        }
+
+        // 3. Drive files list
+        if (Array.isArray(parsed) && parsed.length > 0 && (parsed[0].name !== undefined && (parsed[0].mimeType !== undefined || parsed[0].size !== undefined || parsed[0].path !== undefined))) {
+          return `
+            <div class="result-card result-card--drive">
+              <div class="result-card-header">
+                <span class="result-card-title">📁 Drive & Workspace Files (${parsed.length})</span>
+              </div>
+              <div class="result-items-list" style="display:flex;flex-direction:column;gap:8px;margin-top:8px;">
+                ${parsed.map(file => `
+                  <div class="result-item" style="padding:8px 10px;background:#0d0d14;border:1px solid #1a1a26;border-radius:6px;display:flex;justify-content:space-between;align-items:center;">
+                    <div>
+                      <strong style="color:#ffffff;font-size:13px;">${h(file.name)}</strong>
+                      <div style="font-size:11px;color:#747484;">${h(file.mimeType || file.type || 'File')}</div>
+                    </div>
+                    ${file.size ? `<span style="font-size:11px;color:#888898;font-family:monospace;">${formatFileSize(file.size)}</span>` : ''}
+                  </div>
+                `).join('')}
+              </div>
+            </div>`;
+        }
+
+        // 4. Knowledge search hits
+        if (Array.isArray(parsed) && parsed.length > 0 && (parsed[0].filename !== undefined || parsed[0].provenance !== undefined)) {
+          return `
+            <div class="result-card result-card--knowledge">
+              <div class="result-card-header">
+                <span class="result-card-title">📚 Grounded Knowledge Citations (${parsed.length})</span>
+              </div>
+              <div class="result-items-list" style="display:flex;flex-direction:column;gap:8px;margin-top:8px;">
+                ${parsed.map(hit => `
+                  <div class="result-item" style="padding:8px 10px;background:#0d0d14;border:1px solid #1a1a26;border-radius:6px;">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+                      <strong style="color:#81c995;font-size:12px;">📄 ${h(hit.filename || 'Document')}</strong>
+                      ${hit.score ? `<span style="font-size:10px;padding:2px 5px;background:rgba(129,201,149,0.15);color:#81c995;border-radius:3px;">${Math.round(hit.score * 100)}% match</span>` : ''}
+                    </div>
+                    <div style="font-size:12px;color:#c0c0d0;line-height:1.4;">${h(hit.provenance || hit.content || '')}</div>
+                  </div>
+                `).join('')}
+              </div>
+            </div>`;
+        }
+
+        return match;
+      } catch (_) {
+        return match;
+      }
+    });
+  }
+
   function formatAssistantMessage(raw) {
     if (!raw) return '';
     const sanitized = sanitizePresentationText(raw);
-    return renderMarkdown(sanitized);
+    const withCards = renderStructuredResults(sanitized);
+    return renderMarkdown(withCards);
   }
 
 
@@ -745,13 +861,13 @@
         `}
 
         <nav class="sidebar-nav">
-          ${navItem('agents',      'Agents',      'users')}
-          ${navItem('files',       'Files',       'folder')}
-          ${navItem('work',        'Work',        'zap')}
-          ${navItem('knowledge',   'Knowledge',   'book-open')}
-          ${navItem('activity',    'Activity',    'activity')}
-          ${navItem('connections', 'Connections', 'link')}
-          ${navItem('settings',    'Settings',    'settings')}
+          ${navItem('chat',        'Chief of Staff', 'message-circle')}
+          ${navItem('agents',      'Workforce',      'users')}
+          ${navItem('work',        'Work',           'zap')}
+          ${navItem('knowledge',   'Knowledge',      'book-open')}
+          ${navItem('connections', 'Connections',    'link')}
+          ${navItem('activity',    'Activity',       'activity')}
+          ${navItem('settings',    'Settings',       'settings')}
         </nav>
 
         <div class="sidebar-footer">
@@ -847,18 +963,34 @@
     }
   }
 
-  // ─── SURFACE: AGENTS (Specialized AI Agents Workspace V1.2) ────────────────
+  // ─── SURFACE: WORKFORCE & AGENT WORKSPACES (Section 8 & 9) ────────────────
+  function surfaceAgentWorkspace(agentId) {
+    return `
+      <div class="surface surface-agent-workspace" id="surface-agent-workspace">
+        <div class="agent-workspace-view" id="agent-workspace-container" data-agent-id="${h(agentId)}">
+          <div class="conn-loading">
+            <span class="thinking-dot"></span><span class="thinking-dot"></span><span class="thinking-dot"></span>
+            <span>Loading agent workspace…</span>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
   function surfaceAgents() {
+    if (state.activeAgentId) {
+      return surfaceAgentWorkspace(state.activeAgentId);
+    }
     return `
       <div class="surface surface-agents" id="surface-agents">
         <div class="surface-header">
           <div>
-            <h1 class="surface-title">Specialized AI Agents</h1>
-            <p class="surface-sub">Autonomous business agents operating with grounded knowledge and strictly enforced permissions.</p>
+            <h1 class="surface-title">Workforce</h1>
+            <p class="surface-sub">The five production business specialists operating with grounded knowledge and strictly enforced permissions.</p>
           </div>
           <div class="header-action-group">
             <button class="btn btn-primary" id="btn-agents-open-chat">
-              ${icon('message-circle', 16)} Open Universal Chat
+              ${icon('message-circle', 16)} Open Chief of Staff
             </button>
           </div>
         </div>
@@ -866,14 +998,14 @@
         <div class="agents-search-bar">
           <div class="search-input-wrap">
             <span class="search-icon">${icon('search', 16)}</span>
-            <input type="text" class="search-input" id="agents-filter-input" placeholder="Search agents by role, purpose, or name…" />
+            <input type="text" class="search-input" id="agents-filter-input" placeholder="Search agents by capability, role, or name…" />
           </div>
         </div>
 
         <div class="agents-grid" id="agents-grid">
           <div class="agents-loading">
             <span class="thinking-dot"></span><span class="thinking-dot"></span><span class="thinking-dot"></span>
-            <span>Loading specialized agents…</span>
+            <span>Loading workforce agents…</span>
           </div>
         </div>
       </div>
@@ -1576,45 +1708,45 @@
       </div>`;
   }
 
-  // ─── SURFACE: WORK ─────────────────────────────────────────────────────────
+  // ─── SURFACE: WORK (TASKS, AUTOMATIONS, APPROVALS - Section 10-12) ────────
   function surfaceWork() {
-    const tabs = [
-      { id: 'all',             label: 'All Work' },
-      { id: 'running',         label: 'Running' },
-      { id: 'scheduled',       label: 'Scheduled' },
-      { id: 'automated',       label: 'Automated' },
-      { id: 'completed',       label: 'Completed' },
-      { id: 'needs_approval',  label: 'Needs Approval' },
+    const section = state.work.section || 'tasks';
+    const subtabs = [
+      { id: 'tasks',       label: 'Tasks' },
+      { id: 'automations', label: 'Automations' },
+      { id: 'approvals',   label: 'Approvals' }
     ];
     return `
       <div class="surface surface-work" id="surface-work">
         <div class="surface-header">
           <div>
             <h1 class="surface-title">Work</h1>
-            <p class="surface-sub">Everything Mesnium is running, scheduling, and automating on your behalf.</p>
+            <p class="surface-sub">Manage persistent tasks, background automations, and operator action approvals.</p>
           </div>
-          <button class="btn btn-primary" id="btn-create-automation">
-            ${icon('plus', 16)} Create Automation
-          </button>
+          <div class="header-action-group">
+            ${section === 'tasks' ? `
+              <button class="btn btn-primary" id="btn-create-task">
+                ${icon('plus', 16)} New Task
+              </button>
+            ` : (section === 'automations' ? `
+              <button class="btn btn-primary" id="btn-create-automation">
+                ${icon('plus', 16)} Create Automation
+              </button>
+            ` : '')}
+          </div>
         </div>
 
-        <div class="work-tabs" role="tablist">
-          ${tabs.map(t => `
-            <button class="work-tab ${state.work.tab === t.id ? 'work-tab--active' : ''}"
-              id="work-tab-${t.id}"
-              role="tab"
-              aria-selected="${state.work.tab === t.id}"
-              data-work-tab="${t.id}">
-              ${t.label}
+        <div class="work-subtabs" role="tablist">
+          ${subtabs.map(st => `
+            <button class="work-subtab ${section === st.id ? 'work-subtab--active' : ''}"
+              id="work-subtab-${st.id}"
+              data-work-subtab="${st.id}">
+              ${st.label}
             </button>`).join('')}
         </div>
 
         <div class="work-content" id="work-content">
-          <div class="empty-state empty-state--centered">
-            <div class="empty-icon">⚡</div>
-            <h3>No work found</h3>
-            <p>Create an automation to start scheduling and running tasks automatically.</p>
-          </div>
+          <div class="conn-loading"><span class="thinking-dot"></span><span class="thinking-dot"></span><span class="thinking-dot"></span><span>Loading ${section}…</span></div>
         </div>
       </div>`;
   }
@@ -1735,18 +1867,21 @@
       </div>`;
   }
 
-  // ─── SURFACE: SETTINGS ─────────────────────────────────────────────────────
+  // ─── SURFACE: SETTINGS (Section 15 & 18) ───────────────────────────────────
   function surfaceSettings() {
     const tabs = [
-      { id: 'general',       label: 'General' },
-      { id: 'behavior',      label: 'Behavior' },
-      { id: 'notifications', label: 'Notifications' },
-      { id: 'advanced',      label: 'Advanced' },
+      { id: 'workspace',  label: 'Workspace' },
+      { id: 'providers',  label: 'AI Providers' },
+      { id: 'security',   label: 'Security' },
+      { id: 'system',     label: 'System' },
     ];
     return `
       <div class="surface surface-settings" id="surface-settings">
         <div class="surface-header">
-          <h1 class="surface-title">Settings</h1>
+          <div>
+            <h1 class="surface-title">Settings</h1>
+            <p class="surface-sub">Configure your business workspace, AI model providers, and security policies.</p>
+          </div>
         </div>
         <div class="settings-tabs" role="tablist">
           ${tabs.map(t => `
@@ -1764,37 +1899,159 @@
 
   function renderSettingsTab(tab) {
     switch (tab) {
-      case 'general':
+      case 'workspace':
         return `
           <div class="settings-card">
+            <h3 style="margin:0 0 8px 0;font-size:16px;">Business Workspace Profile</h3>
+            <p style="color:#a0a0b0;font-size:13px;margin:0 0 16px 0;">Configure your organization name and tenant environment.</p>
             <div class="form-field">
               <label class="form-label" for="setting-biz-name">Business Name</label>
               <input type="text" id="setting-biz-name" class="form-input" value="${h(state.settings.businessName)}" />
             </div>
-            <div class="form-actions">
-              <button class="btn btn-primary" id="btn-save-general">Save</button>
+            <div class="form-actions" style="margin-top:16px;">
+              <button class="btn btn-primary" id="btn-save-general">Save Changes</button>
             </div>
           </div>`;
-      case 'behavior':
+
+      case 'providers':
         return `
           <div class="settings-card">
-            <p class="settings-note">Assistant personality, speech synthesis, and autonomy controls.</p>
-          </div>`;
-      case 'notifications':
-        return `
-          <div class="settings-card">
-            <p class="settings-note">Notification preferences for scheduled automations and actions.</p>
-          </div>`;
-      case 'advanced':
-        return `
-          <div class="settings-card">
-            <div class="form-field">
-              <label class="form-label">Storage Engine</label>
-              <input type="text" class="form-input" value="SQLite WAL + FTS5 + Server Workspace" readonly />
+            <h3 style="margin:0 0 8px 0;font-size:16px;">AI Provider Management</h3>
+            <p style="color:#a0a0b0;font-size:13px;margin:0 0 16px 0;">
+              Mesnium is provider-agnostic. Grounded natural-language reasoning can run through Google Gemini, Anthropic Claude, OpenAI, or local runtimes.
+            </p>
+
+            <div id="provider-diagnostic-container">
+              <div class="conn-loading">
+                <span class="thinking-dot"></span><span class="thinking-dot"></span><span class="thinking-dot"></span>
+                <span>Checking provider readiness…</span>
+              </div>
             </div>
-            <div class="form-field">
-              <label class="form-label">Gateway Protocol</label>
-              <input type="text" class="form-input" value="WebSocket JSON-RPC 2.0" readonly />
+
+            <h4 style="margin:24px 0 12px 0;font-size:14px;color:#ceced6;text-transform:uppercase;letter-spacing:0.04em;">Frontier Model Providers</h4>
+            <div class="providers-grid">
+              <!-- Google Gemini / Vertex -->
+              <div class="provider-card">
+                <div>
+                  <div class="provider-card-header">
+                    <div>
+                      <span class="provider-card-title">Google Gemini / Vertex</span>
+                      <div style="font-size:11px;color:#747484;margin-top:2px;">gemini-2.5-flash / pro</div>
+                    </div>
+                    <span class="badge badge--neutral" id="badge-prov-google">Checking…</span>
+                  </div>
+                  <div style="font-size:12px;color:#a0a0b0;margin-top:10px;line-height:1.4;">High-efficiency multimodal intelligence directly integrated with Google Workspace.</div>
+                </div>
+                <div style="margin-top:12px;">
+                  <div style="font-size:11px;color:#707080;margin-bottom:4px;">API Key:</div>
+                  <div style="display:flex;gap:6px;">
+                    <input type="password" class="provider-key-input" id="key-input-google" placeholder="GEMINI_API_KEY" />
+                    <button class="btn btn-secondary btn-sm" id="btn-save-key-google">Save</button>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Anthropic Claude -->
+              <div class="provider-card">
+                <div>
+                  <div class="provider-card-header">
+                    <div>
+                      <span class="provider-card-title">Anthropic Claude</span>
+                      <div style="font-size:11px;color:#747484;margin-top:2px;">claude-3-7-sonnet / 3-5-haiku</div>
+                    </div>
+                    <span class="badge badge--neutral" id="badge-prov-anthropic">Checking…</span>
+                  </div>
+                  <div style="font-size:12px;color:#a0a0b0;margin-top:10px;line-height:1.4;">Frontier reasoning, complex analysis, and long-context synthesis.</div>
+                </div>
+                <div style="margin-top:12px;">
+                  <div style="font-size:11px;color:#707080;margin-bottom:4px;">API Key:</div>
+                  <div style="display:flex;gap:6px;">
+                    <input type="password" class="provider-key-input" id="key-input-anthropic" placeholder="sk-ant-..." />
+                    <button class="btn btn-secondary btn-sm" id="btn-save-key-anthropic">Save</button>
+                  </div>
+                </div>
+              </div>
+
+              <!-- OpenAI ChatGPT -->
+              <div class="provider-card">
+                <div>
+                  <div class="provider-card-header">
+                    <div>
+                      <span class="provider-card-title">OpenAI ChatGPT</span>
+                      <div style="font-size:11px;color:#747484;margin-top:2px;">gpt-4o / o3-mini</div>
+                    </div>
+                    <span class="badge badge--neutral" id="badge-prov-openai">Checking…</span>
+                  </div>
+                  <div style="font-size:12px;color:#a0a0b0;margin-top:10px;line-height:1.4;">Universal tool execution, structured output, and fast inference.</div>
+                </div>
+                <div style="margin-top:12px;">
+                  <div style="font-size:11px;color:#707080;margin-bottom:4px;">API Key:</div>
+                  <div style="display:flex;gap:6px;">
+                    <input type="password" class="provider-key-input" id="key-input-openai" placeholder="sk-..." />
+                    <button class="btn btn-secondary btn-sm" id="btn-save-key-openai">Save</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>`;
+
+      case 'security':
+        return `
+          <div class="settings-card">
+            <h3 style="margin:0 0 8px 0;font-size:16px;">Security & Action Gatekeeper Plane</h3>
+            <p style="color:#a0a0b0;font-size:13px;margin:0 0 16px 0;">
+              Mesnium enforces server-side permission verification, cryptographic payload integrity, and tenant-isolated memory.
+            </p>
+
+            <div style="display:flex;flex-direction:column;gap:12px;">
+              <div style="padding:14px 16px;background:#0d0d14;border:1px solid #1a1a26;border-radius:6px;display:flex;justify-content:space-between;align-items:center;">
+                <div>
+                  <strong style="color:#ffffff;font-size:13px;">Action Gatekeeper (Human-in-the-Loop)</strong>
+                  <div style="font-size:12px;color:#747484;margin-top:2px;">Consequential mutations (emails, calendar mutations, filesystem changes) are intercepted and held for operator confirmation.</div>
+                </div>
+                <span class="badge badge--ok">ARMED (SHA-256)</span>
+              </div>
+
+              <div style="padding:14px 16px;background:#0d0d14;border:1px solid #1a1a26;border-radius:6px;display:flex;justify-content:space-between;align-items:center;">
+                <div>
+                  <strong style="color:#ffffff;font-size:13px;">Multi-Tenant Memory Isolation</strong>
+                  <div style="font-size:12px;color:#747484;margin-top:2px;">Cross-tenant queries are strictly rejected at the database and retrieval layers.</div>
+                </div>
+                <span class="badge badge--ok">ENFORCED</span>
+              </div>
+
+              <div style="padding:14px 16px;background:#0d0d14;border:1px solid #1a1a26;border-radius:6px;display:flex;justify-content:space-between;align-items:center;">
+                <div>
+                  <strong style="color:#ffffff;font-size:13px;">Subagent Anti-Escalation & Tool Sandboxing</strong>
+                  <div style="font-size:12px;color:#747484;margin-top:2px;">Subagent delegation is strictly limited to authorized production specialists with bounded concurrency.</div>
+                </div>
+                <span class="badge badge--ok">ENFORCED</span>
+              </div>
+            </div>
+          </div>`;
+
+      case 'system':
+        return `
+          <div class="settings-card">
+            <h3 style="margin:0 0 8px 0;font-size:16px;">Runtime & System Status</h3>
+            <p style="color:#a0a0b0;font-size:13px;margin:0 0 16px 0;">Underlying OpenClaw kernel and persistence architecture.</p>
+            <div style="display:flex;flex-direction:column;gap:14px;">
+              <div class="form-field">
+                <label class="form-label">Operating Engine</label>
+                <input type="text" class="form-input" value="OpenClaw Autonomous Runtime (v2026.7.1-2)" readonly />
+              </div>
+              <div class="form-field">
+                <label class="form-label">Storage Engine</label>
+                <input type="text" class="form-input" value="SQLite WAL + FTS5 + Server Workspace Persistence" readonly />
+              </div>
+              <div class="form-field">
+                <label class="form-label">Gateway Protocol</label>
+                <input type="text" class="form-input" value="WebSocket JSON-RPC 2.0 (Strict Method Authorization)" readonly />
+              </div>
+              <div class="form-field">
+                <label class="form-label">Local Store Directory</label>
+                <input type="text" class="form-input" value="~/.openclaw/ (Tasks, Automations, Approvals, Memory)" readonly />
+              </div>
             </div>
           </div>`;
       default:
@@ -2061,8 +2318,13 @@
     if (r === 'settings')    handlersSettings();
   }
 
-  // ─── AGENTS SURFACE HANDLERS (V1.2) ────────────────────────────────────────
+  // ─── AGENTS SURFACE HANDLERS (Section 8 & 9) ──────────────────────────────
   async function handlersAgents() {
+    if (state.activeAgentId) {
+      await renderAgentWorkspaceView(state.activeAgentId);
+      return;
+    }
+
     const grid = document.getElementById('agents-grid');
     const filterInput = document.getElementById('agents-filter-input');
     const btnChat = document.getElementById('btn-agents-open-chat');
@@ -2105,20 +2367,35 @@
         'Sales': '🎯',
         'Marketing': '📢',
         'Operations': '⚙️',
-        'Executive': '👑',
-        'Finance': '📊',
-        'Research': '🔬'
+        'Executive': '👑'
+      };
+
+      const toolNames = {
+        'knowledge_search': 'Knowledge',
+        'web_search': 'Web Intelligence',
+        'gmail_search': 'Gmail Search',
+        'gmail_draft': 'Gmail Draft',
+        'gmail_send': 'Gmail Send',
+        'calendar_agenda': 'Calendar',
+        'calendar_create_event': 'Schedule Meeting',
+        'calendar_delete_event': 'Delete Meeting',
+        'local_filesystem': 'Filesystem',
+        'briefing_generate': 'Executive Briefing',
+        'monitors_run': 'Monitors',
+        'delegate_agent': 'Delegation'
       };
 
       grid.innerHTML = filtered.map(agent => {
         const isPaused = agent.status === 'paused';
         const roleIcon = roleIcons[agent.role] || '🤖';
         const purposeText = agent.purpose || agent.description || 'Specialized business agent';
+        const allowedTools = Array.isArray(agent.allowedTools) ? agent.allowedTools : [];
+        const approvalTools = Object.keys(agent.approvalPolicy || {}).filter(k => agent.approvalPolicy[k]);
 
         return `
           <div class="agent-card ${isPaused ? 'agent-card--paused' : ''}" id="card-${agent.id}" data-agent-id="${agent.id}">
             <div class="agent-card-header">
-              <div class="agent-card-identity">
+              <div class="agent-card-identity" style="cursor:pointer;" data-open-workspace="${agent.id}">
                 <span class="agent-avatar-icon">${roleIcon}</span>
                 <div>
                   <h3 class="agent-card-name">${h(agent.name)}</h3>
@@ -2132,16 +2409,31 @@
 
             <div class="agent-card-body">
               <p class="agent-card-purpose">${h(purposeText)}</p>
-              <div class="agent-card-meta">
-                <span class="agent-meta-label">Status:</span>
-                <span class="agent-meta-value">${isPaused ? 'Paused (Resume to execute)' : 'Online & Ready'}</span>
+              
+              <div style="margin: 10px 0;">
+                <div style="font-size:11px;color:#747484;text-transform:uppercase;letter-spacing:0.04em;margin-bottom:4px;">Authorized Capabilities:</div>
+                <div style="display:flex;flex-wrap:wrap;gap:4px;">
+                  ${allowedTools.slice(0, 4).map(t => `<span class="agent-capability-tag" style="font-size:11px;">${h(toolNames[t] || t)}</span>`).join('')}
+                  ${allowedTools.length > 4 ? `<span class="agent-capability-tag" style="font-size:11px;">+${allowedTools.length - 4} more</span>` : ''}
+                </div>
               </div>
+
+              ${approvalTools.length > 0 ? `
+                <div style="font-size:11px;color:#f28b82;margin-top:6px;display:flex;align-items:center;gap:4px;">
+                  <span>🛡️</span> <span>Gatekeeper Armed (${approvalTools.length} actions)</span>
+                </div>
+              ` : ''}
             </div>
 
             <div class="agent-card-footer">
-              <button class="btn btn-sm btn-primary btn-start-task" data-agent-id="${agent.id}" data-agent-name="${h(agent.name)}">
-                ${icon('message-circle', 14)} Start Task
-              </button>
+              <div style="display:flex;gap:6px;">
+                <button class="btn btn-sm btn-primary" data-open-workspace="${agent.id}">
+                  Workspace
+                </button>
+                <button class="btn btn-sm btn-secondary btn-start-task" data-agent-id="${agent.id}" data-agent-name="${h(agent.name)}">
+                  ${icon('message-circle', 14)} Chat
+                </button>
+              </div>
               <button class="btn btn-sm btn-secondary btn-toggle-agent" data-agent-id="${agent.id}" data-action="${isPaused ? 'resume' : 'pause'}">
                 ${isPaused ? 'Resume' : 'Pause'}
               </button>
@@ -2150,10 +2442,18 @@
         `;
       }).join('');
 
+      // Bind workspace open clicks
+      grid.querySelectorAll('[data-open-workspace]').forEach(el => {
+        el.onclick = () => {
+          const id = el.getAttribute('data-open-workspace');
+          state.activeAgentId = id;
+          renderApp();
+        };
+      });
+
       // Bind start task buttons
       grid.querySelectorAll('.btn-start-task').forEach(btn => {
         btn.onclick = () => {
-          const agentId = btn.getAttribute('data-agent-id');
           const agentName = btn.getAttribute('data-agent-name');
           startNewChat();
           setTimeout(() => {
@@ -2186,6 +2486,278 @@
     }
 
     await loadAgents();
+  }
+
+  async function renderAgentWorkspaceView(agentId) {
+    const container = document.getElementById('agent-workspace-container');
+    if (!container) return;
+
+    try {
+      const [agentRes, tasksRes, actRes] = await Promise.all([
+        MesniumClient.request('mesnium.agents.get', { id: agentId }),
+        MesniumClient.request('mesnium.tasks.list', { agentId }).catch(() => ({ tasks: [] })),
+        MesniumClient.request('mesnium.activity.list', { limit: 25 }).catch(() => ({ activity: [] }))
+      ]);
+
+      const agent = agentRes.agent;
+      if (!agent) {
+        container.innerHTML = `<div class="error-state">Agent "${h(agentId)}" not found.</div>`;
+        return;
+      }
+
+      const tasks = tasksRes.tasks || [];
+      const agentActivity = (actRes.activity || []).filter(a => a.agentId === agentId || a.agentName === agent.name);
+      const isPaused = agent.status === 'paused';
+
+      const roleIcons = {
+        'Receptionist': '👩‍💼',
+        'Sales': '🎯',
+        'Marketing': '📢',
+        'Operations': '⚙️',
+        'Executive': '👑'
+      };
+      const roleIcon = roleIcons[agent.role] || '🤖';
+
+      const toolNames = {
+        'knowledge_search': 'Knowledge Search',
+        'web_search': 'Web Intelligence',
+        'gmail_search': 'Gmail Search',
+        'gmail_draft': 'Gmail Draft',
+        'gmail_send': 'Gmail Send',
+        'calendar_agenda': 'Calendar Agenda',
+        'calendar_create_event': 'Schedule Event',
+        'calendar_delete_event': 'Delete Event',
+        'local_filesystem': 'Local Filesystem',
+        'briefing_generate': 'Executive Briefing',
+        'monitors_run': 'Research Monitors',
+        'delegate_agent': 'Subagent Delegation'
+      };
+
+      const allowedTools = Array.isArray(agent.allowedTools) ? agent.allowedTools : [];
+      const approvalPolicy = agent.approvalPolicy || {};
+      const approvalTools = Object.keys(approvalPolicy).filter(k => approvalPolicy[k]);
+
+      container.innerHTML = `
+        <div class="agent-workspace-header">
+          <div style="display:flex;align-items:center;gap:12px;">
+            <button class="btn btn-secondary btn-sm" id="btn-back-to-workforce">← Back to Workforce</button>
+            <span class="agent-avatar-icon" style="font-size:26px;">${roleIcon}</span>
+            <div>
+              <div style="display:flex;align-items:center;gap:8px;">
+                <h2 style="margin:0;font-size:18px;font-weight:600;color:#ffffff;">${h(agent.name)}</h2>
+                <span class="badge ${isPaused ? 'badge--warn' : 'badge--ok'}">${isPaused ? 'Paused' : 'Active'}</span>
+              </div>
+              <span class="agent-role-pill" style="margin-top:2px;">${h(agent.role || 'Agent')}</span>
+            </div>
+          </div>
+          <div style="display:flex;gap:8px;">
+            <button class="btn btn-secondary btn-sm" id="btn-toggle-agent-status" data-action="${isPaused ? 'resume' : 'pause'}">
+              ${isPaused ? 'Resume Agent' : 'Pause Agent'}
+            </button>
+            <button class="btn btn-primary btn-sm" id="btn-workspace-open-chat">
+              ${icon('message-circle', 14)} Open in Chief of Staff
+            </button>
+          </div>
+        </div>
+
+        <div class="agent-workspace-grid" style="margin-top:16px;">
+          <!-- LEFT COLUMN: CAPABILITY BUNDLE & POLICY -->
+          <div class="agent-capabilities-box">
+            <div>
+              <h4 style="margin:0 0 6px 0;font-size:12px;color:#888898;text-transform:uppercase;letter-spacing:0.04em;">Purpose & Mandate</h4>
+              <p style="margin:0;font-size:13px;color:#ceced6;line-height:1.5;">${h(agent.purpose || agent.description || '')}</p>
+            </div>
+
+            <div>
+              <h4 style="margin:0 0 6px 0;font-size:12px;color:#888898;text-transform:uppercase;letter-spacing:0.04em;">Authorized Tools (${allowedTools.length})</h4>
+              <div style="display:flex;flex-wrap:wrap;gap:4px;">
+                ${allowedTools.map(t => `<span class="agent-capability-tag">⚡ ${h(toolNames[t] || t)}</span>`).join('')}
+              </div>
+            </div>
+
+            <div>
+              <h4 style="margin:0 0 6px 0;font-size:12px;color:#888898;text-transform:uppercase;letter-spacing:0.04em;">Gatekeeper Approvals Policy</h4>
+              ${approvalTools.length === 0 ? `
+                <span style="font-size:12px;color:#747484;">All authorized operations execute autonomously without gating.</span>
+              ` : `
+                <div style="display:flex;flex-direction:column;gap:4px;">
+                  ${approvalTools.map(t => `
+                    <div style="font-size:12px;color:#f28b82;display:flex;align-items:center;gap:6px;">
+                      <span>🛡️</span> <strong>${h(toolNames[t] || t)}</strong> (Requires Confirmation)
+                    </div>
+                  `).join('')}
+                </div>
+              `}
+            </div>
+
+            <div>
+              <h4 style="margin:0 0 6px 0;font-size:12px;color:#888898;text-transform:uppercase;letter-spacing:0.04em;">Memory & Knowledge Boundary</h4>
+              <div style="font-size:12px;color:#8ab4f8;">Memory Scope: <code>${h(agent.memoryPolicy || 'tenant_shared')}</code></div>
+              <div style="font-size:12px;color:#747484;margin-top:2px;">Knowledge Access: ${(agent.knowledgeScopes || ['all']).join(', ')}</div>
+            </div>
+          </div>
+
+          <!-- RIGHT COLUMN: QUICK LAUNCHER, TASKS & ACTIVITY -->
+          <div style="display:flex;flex-direction:column;gap:16px;">
+            <!-- QUICK TASK LAUNCHER -->
+            <div class="agent-quick-launcher">
+              <h4 style="margin:0 0 8px 0;font-size:14px;color:#ffffff;">Assign Task to ${h(agent.name)}</h4>
+              <textarea class="agent-launcher-input" id="agent-task-input" rows="2" placeholder="Give ${h(agent.name)} a business instruction or prompt…"></textarea>
+              <div style="display:flex;justify-content:flex-end;margin-top:8px;">
+                <button class="btn btn-primary btn-sm" id="btn-submit-agent-task">⚡ Execute Task</button>
+              </div>
+              <div id="agent-task-result-box" style="display:none;margin-top:10px;"></div>
+            </div>
+
+            <!-- ASSIGNED TASKS -->
+            <div style="background:#0d0d13;border:1px solid #1a1a26;border-radius:8px;padding:16px;">
+              <h4 style="margin:0 0 12px 0;font-size:14px;color:#ffffff;">Assigned Persistent Tasks (${tasks.length})</h4>
+              ${tasks.length === 0 ? `
+                <div class="empty-state" style="padding:16px;text-align:center;color:#747484;font-size:13px;">
+                  No persistent tasks currently assigned to ${h(agent.name)}.
+                </div>
+              ` : `
+                <div style="display:flex;flex-direction:column;gap:8px;">
+                  ${tasks.slice(0, 5).map(t => `
+                    <div style="padding:10px;background:#07070a;border:1px solid #161622;border-radius:6px;display:flex;justify-content:space-between;align-items:center;">
+                      <div>
+                        <strong style="color:#ffffff;font-size:13px;">${h(t.title)}</strong>
+                        <div style="font-size:11px;color:#747484;margin-top:2px;">Status: <span class="task-badge-status task-badge--${t.status}">${t.status}</span></div>
+                      </div>
+                      <button class="btn btn-secondary btn-sm" data-run-agent-task="${h(t.id)}">Run</button>
+                    </div>
+                  `).join('')}
+                </div>
+              `}
+            </div>
+
+            <!-- RECENT AGENT ACTIVITY -->
+            <div style="background:#0d0d13;border:1px solid #1a1a26;border-radius:8px;padding:16px;">
+              <h4 style="margin:0 0 12px 0;font-size:14px;color:#ffffff;">Recent Operational Activity (${agentActivity.length})</h4>
+              ${agentActivity.length === 0 ? `
+                <div class="empty-state" style="padding:16px;text-align:center;color:#747484;font-size:13px;">
+                  No execution runs recorded for ${h(agent.name)} yet.
+                </div>
+              ` : `
+                <div style="display:flex;flex-direction:column;gap:8px;">
+                  ${agentActivity.slice(0, 5).map(act => `
+                    <div style="padding:10px;background:#07070a;border:1px solid #161622;border-radius:6px;">
+                      <div style="display:flex;justify-content:space-between;font-size:12px;color:#888898;">
+                        <span>${new Date(act.startedAt || act.timestamp || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                        <span class="badge ${act.status === 'completed' ? 'badge--ok' : 'badge--warn'}">${act.status}</span>
+                      </div>
+                      <div style="font-size:13px;color:#ceced6;margin-top:4px;">${h(act.prompt || 'Autonomous execution')}</div>
+                    </div>
+                  `).join('')}
+                </div>
+              `}
+            </div>
+          </div>
+        </div>
+      `;
+
+      // Back to workforce
+      const backBtn = document.getElementById('btn-back-to-workforce');
+      if (backBtn) {
+        backBtn.onclick = () => {
+          state.activeAgentId = null;
+          renderApp();
+        };
+      }
+
+      // Open chat
+      const chatBtn = document.getElementById('btn-workspace-open-chat');
+      if (chatBtn) {
+        chatBtn.onclick = () => {
+          startNewChat();
+          setTimeout(() => {
+            const input = document.getElementById('chat-input');
+            if (input) {
+              input.value = `@${agent.name} `;
+              input.focus();
+            }
+          }, 100);
+        };
+      }
+
+      // Toggle status
+      const toggleBtn = document.getElementById('btn-toggle-agent-status');
+      if (toggleBtn) {
+        toggleBtn.onclick = async () => {
+          const action = toggleBtn.getAttribute('data-action');
+          try {
+            await MesniumClient.request(`mesnium.agents.${action}`, { id: agentId });
+            await renderAgentWorkspaceView(agentId);
+          } catch (err) {
+            alert('Could not update agent: ' + err.message);
+          }
+        };
+      }
+
+      // Execute task in launcher
+      const submitTaskBtn = document.getElementById('btn-submit-agent-task');
+      if (submitTaskBtn) {
+        submitTaskBtn.onclick = async () => {
+          const input = document.getElementById('agent-task-input');
+          const promptText = input ? input.value.trim() : '';
+          if (!promptText) return;
+
+          submitTaskBtn.disabled = true;
+          submitTaskBtn.textContent = 'Running…';
+          const resBox = document.getElementById('agent-task-result-box');
+          if (resBox) {
+            resBox.style.display = 'block';
+            resBox.innerHTML = '<div class="conn-loading"><span class="thinking-dot"></span><span class="thinking-dot"></span><span>Executing task…</span></div>';
+          }
+
+          try {
+            const created = await MesniumClient.request('mesnium.tasks.create', {
+              title: promptText.slice(0, 60),
+              instruction: promptText,
+              agentId: agent.id
+            });
+            const runRes = await MesniumClient.request('mesnium.tasks.run', { id: created.task.id });
+            if (resBox) {
+              const summary = runRes.task?.result || runRes.execution?.summary || 'Task completed.';
+              resBox.innerHTML = `
+                <div class="task-result-box">
+                  <div style="font-weight:600;color:#81c995;margin-bottom:4px;">✓ Result:</div>
+                  <div>${h(summary)}</div>
+                </div>`;
+            }
+            input.value = '';
+            await renderAgentWorkspaceView(agentId);
+          } catch (err) {
+            if (resBox) {
+              resBox.innerHTML = `<div class="error-state" style="margin-top:8px;">${h(translateErrorMessage(err))}</div>`;
+            }
+          } finally {
+            submitTaskBtn.disabled = false;
+            submitTaskBtn.textContent = '⚡ Execute Task';
+          }
+        };
+      }
+
+      // Assigned tasks run
+      container.querySelectorAll('[data-run-agent-task]').forEach(btn => {
+        btn.onclick = async () => {
+          const taskId = btn.getAttribute('data-run-agent-task');
+          btn.disabled = true;
+          btn.textContent = 'Running…';
+          try {
+            await MesniumClient.request('mesnium.tasks.run', { id: taskId });
+            await renderAgentWorkspaceView(agentId);
+          } catch (err) {
+            alert(translateErrorMessage(err));
+            btn.disabled = false;
+            btn.textContent = 'Run';
+          }
+        };
+      });
+
+    } catch (err) {
+      container.innerHTML = `<div class="error-state">Failed to load agent workspace: ${h(err.message)}</div>`;
+    }
   }
 
   // ─── OVERVIEW HANDLERS ─────────────────────────────────────────────────────
@@ -4431,14 +5003,20 @@
     }
   }
 
-  // ─── WORK HANDLERS (V1.1 PERSISTENT AUTOMATIONS CONTROL PLANE) ──────────────
+  // ─── WORK HANDLERS (TASKS, AUTOMATIONS, APPROVALS - Section 10-12) ───────────
   async function handlersWork() {
-    document.querySelectorAll('[data-work-tab]').forEach(tab => {
+    // Subtab switching
+    document.querySelectorAll('[data-work-subtab]').forEach(tab => {
       tab.onclick = () => {
-        state.work.tab = tab.getAttribute('data-work-tab');
+        state.work.section = tab.getAttribute('data-work-subtab');
         renderApp();
       };
     });
+
+    const btnCreateTask = document.getElementById('btn-create-task');
+    if (btnCreateTask) {
+      btnCreateTask.onclick = () => openCreateTaskModal();
+    }
 
     const btnCreateAuto = document.getElementById('btn-create-automation');
     if (btnCreateAuto) {
@@ -4448,39 +5026,153 @@
     const content = document.getElementById('work-content');
     if (!content) return;
 
+    const section = state.work.section || 'tasks';
+
     try {
-      const [autoRes, appRes] = await Promise.all([
-        MesniumClient.request('mesnium.automations.list').catch(() => ({ automations: [] })),
-        MesniumClient.request('mesnium.approvals.list').catch(() => ({ approvals: [] }))
-      ]);
+      // ─── SECTION 1: PERSISTENT TASKS ─────────────────────────────────────────
+      if (section === 'tasks') {
+        const res = await MesniumClient.request('mesnium.tasks.list').catch(() => ({ tasks: [] }));
+        const allTasks = res.tasks || [];
+        const currentFilter = state.work.taskFilter || 'all';
 
-      const automations = autoRes.automations || [];
-      const approvals = appRes.approvals || [];
+        const filtered = currentFilter === 'all'
+          ? allTasks
+          : allTasks.filter(t => t.status === currentFilter);
 
-      if (state.work.tab === 'needs_approval') {
-        if (approvals.length === 0) {
-          content.innerHTML = `<div class="empty-state empty-state--centered"><div class="empty-icon">✓</div><h3>No pending approvals</h3><p>All consequential actions have been approved.</p></div>`;
-        } else {
-          content.innerHTML = `
-            <div class="approvals-list">
-              ${approvals.map(app => `
-                <div class="approval-card" id="approval-${app.id}">
-                  <div class="approval-info">
-                    <span class="badge badge--warn">Requires Approval</span>
-                    <h4>${h(app.title || app.actionType)}</h4>
-                    <p style="margin:6px 0 8px;font-size:13px;color:var(--text-secondary,#c0c0d0);">${h(app.description || 'Outbound action awaiting operator confirmation.')}</p>
-                    <div style="font-size:12px;color:var(--muted,#747480);">Target: <code>${h(app.target || 'N/A')}</code></div>
+        const filterOptions = ['all', 'pending', 'in_progress', 'waiting_approval', 'completed', 'failed'];
+
+        content.innerHTML = `
+          <div class="filter-pills" style="margin-bottom:16px;">
+            ${filterOptions.map(f => `
+              <button class="filter-pill ${currentFilter === f ? 'filter-pill--active' : ''}" data-task-filter="${f}">
+                ${f.replace('_', ' ').toUpperCase()} (${f === 'all' ? allTasks.length : allTasks.filter(t => t.status === f).length})
+              </button>
+            `).join('')}
+          </div>
+
+          ${filtered.length === 0 ? `
+            <div class="empty-state empty-state--centered">
+              <div class="empty-icon">📋</div>
+              <h3>No tasks found</h3>
+              <p>${allTasks.length === 0 ? 'No persistent tasks have been created yet. Assign an objective to a specialist agent.' : 'No tasks match the active filter.'}</p>
+              ${allTasks.length === 0 ? '<button class="btn btn-primary btn-sm" id="btn-empty-create-task" style="margin-top:12px;">+ Create First Task</button>' : ''}
+            </div>
+          ` : `
+            <div class="tasks-list">
+              ${filtered.map(t => {
+                const priorityClass = `task-priority--${t.priority || 'medium'}`;
+                const statusClass = `task-badge--${t.status || 'pending'}`;
+                const updatedStr = t.updatedAt ? new Date(t.updatedAt).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }) : '';
+
+                return `
+                  <div class="task-card" id="task-card-${h(t.id)}">
+                    <div class="task-header">
+                      <div class="task-title-wrap">
+                        <span class="task-priority-pill ${priorityClass}">${(t.priority || 'MED').toUpperCase()}</span>
+                        <h4 class="task-title">${h(t.title)}</h4>
+                      </div>
+                      <span class="task-badge-status ${statusClass}">${(t.status || 'pending').replace('_', ' ').toUpperCase()}</span>
+                    </div>
+
+                    <div style="font-size:12px;color:var(--text-secondary,#a0a0b0);margin-bottom:8px;">
+                      Assigned to: <strong><code>${h(t.agentId || 'agent_executive')}</code></strong>
+                      ${updatedStr ? ` · <span style="color:var(--muted,#747480);">Updated: ${updatedStr}</span>` : ''}
+                    </div>
+
+                    <p class="task-instruction">${h(t.instruction || '')}</p>
+
+                    ${t.result ? `
+                      <div class="task-result-box">
+                        <div style="font-weight:600;color:#81c995;margin-bottom:4px;">✓ Output Result:</div>
+                        <div>${h(typeof t.result === 'string' ? t.result : JSON.stringify(t.result, null, 2))}</div>
+                      </div>
+                    ` : ''}
+
+                    ${t.error ? `
+                      <div class="error-state" style="margin-top:8px;font-size:12px;">
+                        <strong>Error:</strong> ${h(translateErrorMessage(t.error))}
+                      </div>
+                    ` : ''}
+
+                    <div class="task-footer">
+                      <div style="display:flex;gap:8px;">
+                        ${t.status !== 'completed' && t.status !== 'in_progress' ? `
+                          <button class="btn btn-primary btn-sm" data-run-task="${h(t.id)}">⚡ Run Task</button>
+                        ` : ''}
+                        ${t.status === 'in_progress' ? `
+                          <button class="btn btn-secondary btn-sm" disabled><span class="thinking-dot"></span> Running…</button>
+                        ` : ''}
+                      </div>
+                      <button class="btn btn-icon btn-sm" data-del-task="${h(t.id)}" title="Delete Task" style="color:var(--accent,#b33d3f);">🗑️</button>
+                    </div>
                   </div>
-                  <div class="approval-actions" style="display:flex;gap:8px;align-items:center;">
-                    <button class="btn btn-primary btn-sm" data-approve="${app.id}">Confirm & Execute</button>
-                    <button class="btn btn-secondary btn-sm" data-reject="${app.id}">Reject</button>
-                  </div>
-                </div>`).join('')}
-            </div>`;
+                `;
+              }).join('')}
+            </div>
+          `}
+        `;
+
+        // Wire task filter pills
+        content.querySelectorAll('[data-task-filter]').forEach(pill => {
+          pill.onclick = () => {
+            state.work.taskFilter = pill.getAttribute('data-task-filter');
+            handlersWork();
+          };
+        });
+
+        // Wire empty create button
+        const btnEmpty = document.getElementById('btn-empty-create-task');
+        if (btnEmpty) {
+          btnEmpty.onclick = () => openCreateTaskModal();
         }
-      } else {
+
+        // Wire run task
+        content.querySelectorAll('[data-run-task]').forEach(btn => {
+          btn.onclick = async () => {
+            const id = btn.getAttribute('data-run-task');
+            btn.disabled = true;
+            btn.textContent = 'Running…';
+            try {
+              await MesniumClient.request('mesnium.tasks.run', { id });
+              await handlersWork();
+            } catch (err) {
+              alert('Task execution failed: ' + translateErrorMessage(err));
+              await handlersWork();
+            }
+          };
+        });
+
+        // Wire delete task
+        content.querySelectorAll('[data-del-task]').forEach(btn => {
+          btn.onclick = async () => {
+            const id = btn.getAttribute('data-del-task');
+            if (confirm('Are you sure you want to delete this task?')) {
+              try {
+                await MesniumClient.request('mesnium.tasks.delete', { id });
+                await handlersWork();
+              } catch (err) {
+                alert('Could not delete task: ' + err.message);
+              }
+            }
+          };
+        });
+      }
+
+      // ─── SECTION 2: AUTOMATIONS ──────────────────────────────────────────────
+      else if (section === 'automations') {
+        const autoRes = await MesniumClient.request('mesnium.automations.list').catch(() => ({ automations: [] }));
+        const automations = autoRes.automations || [];
+
         if (automations.length === 0) {
-          content.innerHTML = `<div class="empty-state empty-state--centered"><div class="empty-icon">⚡</div><h3>No automations found</h3><p>Create an automation to schedule recurring business workflows.</p></div>`;
+          content.innerHTML = `
+            <div class="empty-state empty-state--centered">
+              <div class="empty-icon">⚡</div>
+              <h3>No automations found</h3>
+              <p>Create an automation to schedule recurring business workflows.</p>
+              <button class="btn btn-primary btn-sm" id="btn-empty-create-auto" style="margin-top:12px;">+ Create First Automation</button>
+            </div>`;
+          const btnEmptyAuto = document.getElementById('btn-empty-create-auto');
+          if (btnEmptyAuto) btnEmptyAuto.onclick = () => openCreateAutomationModal();
         } else {
           content.innerHTML = `
             <div class="automations-grid">
@@ -4489,7 +5181,6 @@
                 const nextRunStr = auto.nextRun ? new Date(auto.nextRun).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }) : 'Manual Trigger';
                 const lastRunStr = auto.lastRun?.timestamp ? `${auto.lastRun.status.toUpperCase()} (${auto.lastRun.durationMs}ms)` : 'Never run';
 
-                // Real status badge calculation
                 let badgeClass = 'badge--never';
                 let badgeLabel = '○ Never run';
                 if (!isEnabled) {
@@ -4575,90 +5266,197 @@
               }).join('')}
             </div>`;
         }
+
+        // Automations event listeners
+        content.querySelectorAll('[data-run-auto]').forEach(btn => {
+          btn.onclick = async () => {
+            const id = btn.getAttribute('data-run-auto');
+            const auto = automations.find(a => a.id === id);
+            if (auto) {
+              btn.textContent = 'Launching…';
+              btn.disabled = true;
+              await executeAutomationInNewChat(auto);
+            }
+          };
+        });
+
+        content.querySelectorAll('[data-toggle-history]').forEach(btn => {
+          btn.onclick = () => {
+            const id = btn.getAttribute('data-toggle-history');
+            const drawer = document.getElementById(`history-drawer-${id}`);
+            if (drawer) {
+              drawer.style.display = drawer.style.display === 'none' ? 'block' : 'none';
+            }
+          };
+        });
+
+        content.querySelectorAll('[data-toggle-auto]').forEach(btn => {
+          btn.onclick = async () => {
+            const id = btn.getAttribute('data-toggle-auto');
+            const isEnabled = btn.getAttribute('data-enabled') === 'true';
+            const method = isEnabled ? 'mesnium.automations.pause' : 'mesnium.automations.resume';
+            await MesniumClient.request(method, { id });
+            await handlersWork();
+          };
+        });
+
+        content.querySelectorAll('[data-dup-auto]').forEach(btn => {
+          btn.onclick = async () => {
+            const id = btn.getAttribute('data-dup-auto');
+            await MesniumClient.request('mesnium.automations.duplicate', { id });
+            await handlersWork();
+          };
+        });
+
+        content.querySelectorAll('[data-del-auto]').forEach(btn => {
+          btn.onclick = async () => {
+            const id = btn.getAttribute('data-del-auto');
+            if (confirm('Are you sure you want to delete this automation?')) {
+              await MesniumClient.request('mesnium.automations.delete', { id });
+              await handlersWork();
+            }
+          };
+        });
       }
 
-      // Approve / Reject actions
-      document.querySelectorAll('[data-approve]').forEach(btn => {
-        btn.onclick = async () => {
-          const id = btn.getAttribute('data-approve');
-          btn.disabled = true;
-          btn.textContent = 'Executing…';
-          try {
-            await MesniumClient.request('mesnium.approvals.approve', { id });
-            await handlersWork();
-          } catch (err) {
-            alert('Approval execution failed: ' + err.message);
-            await handlersWork();
-          }
-        };
-      });
+      // ─── SECTION 3: ACTION APPROVALS ─────────────────────────────────────────
+      else if (section === 'approvals') {
+        const appRes = await MesniumClient.request('mesnium.approvals.list').catch(() => ({ approvals: [] }));
+        const approvals = appRes.approvals || [];
 
-      document.querySelectorAll('[data-reject]').forEach(btn => {
-        btn.onclick = async () => {
-          const id = btn.getAttribute('data-reject');
-          await MesniumClient.request('mesnium.approvals.reject', { id });
-          await handlersWork();
-        };
-      });
+        if (approvals.length === 0) {
+          content.innerHTML = `
+            <div class="empty-state empty-state--centered">
+              <div class="empty-icon">✓</div>
+              <h3>No pending approvals</h3>
+              <p>All consequential actions and mutations have been confirmed or processed.</p>
+            </div>`;
+        } else {
+          content.innerHTML = `
+            <div class="approvals-list">
+              ${approvals.map(app => `
+                <div class="approval-card" id="approval-${h(app.id)}">
+                  <div class="approval-info">
+                    <span class="badge badge--warn">Requires Approval</span>
+                    <h4 style="margin:4px 0;">${h(app.title || app.actionType)}</h4>
+                    <p style="margin:6px 0 8px;font-size:13px;color:var(--text-secondary,#c0c0d0);">${h(app.description || 'Consequential business mutation awaiting operator confirmation.')}</p>
+                    <div style="font-size:12px;color:var(--muted,#747480);">
+                      Target: <code>${h(app.target || 'N/A')}</code>
+                      ${app.agentId ? ` · Agent: <strong>${h(app.agentId)}</strong>` : ''}
+                    </div>
+                  </div>
+                  <div class="approval-actions" style="display:flex;gap:8px;align-items:center;">
+                    <button class="btn btn-primary btn-sm" data-approve="${h(app.id)}">Confirm & Execute</button>
+                    <button class="btn btn-secondary btn-sm" data-reject="${h(app.id)}">Reject</button>
+                  </div>
+                </div>`).join('')}
+            </div>`;
 
-      // Run Now -> Automations Run-to-Chat
-      document.querySelectorAll('[data-run-auto]').forEach(btn => {
-        btn.onclick = async () => {
-          const id = btn.getAttribute('data-run-auto');
-          const auto = automations.find(a => a.id === id);
-          if (auto) {
-            btn.textContent = 'Launching…';
-            btn.disabled = true;
-            await executeAutomationInNewChat(auto);
-          }
-        };
-      });
+          content.querySelectorAll('[data-approve]').forEach(btn => {
+            btn.onclick = async () => {
+              const id = btn.getAttribute('data-approve');
+              btn.disabled = true;
+              btn.textContent = 'Executing…';
+              try {
+                await MesniumClient.request('mesnium.approvals.approve', { id });
+                await handlersWork();
+              } catch (err) {
+                alert('Approval execution failed: ' + translateErrorMessage(err));
+                await handlersWork();
+              }
+            };
+          });
 
-      // Toggle History Drawer
-      document.querySelectorAll('[data-toggle-history]').forEach(btn => {
-        btn.onclick = () => {
-          const id = btn.getAttribute('data-toggle-history');
-          const drawer = document.getElementById(`history-drawer-${id}`);
-          if (drawer) {
-            drawer.style.display = drawer.style.display === 'none' ? 'block' : 'none';
-          }
-        };
-      });
-
-      // Pause / Resume toggle
-      document.querySelectorAll('[data-toggle-auto]').forEach(btn => {
-        btn.onclick = async () => {
-          const id = btn.getAttribute('data-toggle-auto');
-          const isEnabled = btn.getAttribute('data-enabled') === 'true';
-          const method = isEnabled ? 'mesnium.automations.pause' : 'mesnium.automations.resume';
-          await MesniumClient.request(method, { id });
-          await handlersWork();
-        };
-      });
-
-      // Duplicate
-      document.querySelectorAll('[data-dup-auto]').forEach(btn => {
-        btn.onclick = async () => {
-          const id = btn.getAttribute('data-dup-auto');
-          await MesniumClient.request('mesnium.automations.duplicate', { id });
-          await handlersWork();
-        };
-      });
-
-      // Delete
-      document.querySelectorAll('[data-del-auto]').forEach(btn => {
-        btn.onclick = async () => {
-          const id = btn.getAttribute('data-del-auto');
-          if (confirm('Are you sure you want to delete this automation?')) {
-            await MesniumClient.request('mesnium.automations.delete', { id });
-            await handlersWork();
-          }
-        };
-      });
+          content.querySelectorAll('[data-reject]').forEach(btn => {
+            btn.onclick = async () => {
+              const id = btn.getAttribute('data-reject');
+              await MesniumClient.request('mesnium.approvals.reject', { id });
+              await handlersWork();
+            };
+          });
+        }
+      }
 
     } catch (err) {
       content.innerHTML = `<div class="error-state">Failed to load work: ${h(err.message)}</div>`;
     }
+  }
+
+  function openCreateTaskModal() {
+    const modalRoot = document.getElementById('mesnium-modal-root');
+    if (!modalRoot) return;
+    modalRoot.innerHTML = `
+      <div class="modal-overlay" id="modal-task-overlay">
+        <div class="modal-card" style="max-width:540px;width:90%;">
+          <div class="modal-header">
+            <h3>Create Persistent Business Task</h3>
+            <button class="modal-close" id="btn-close-task-modal">×</button>
+          </div>
+          <div class="modal-body">
+            <div class="form-field">
+              <label class="form-label" for="task-title-input">Task Title *</label>
+              <input type="text" id="task-title-input" class="form-input" placeholder="e.g. Audit Q1 Sales Pipeline & Draft Follow-ups" />
+            </div>
+            <div class="form-field">
+              <label class="form-label" for="task-agent-select">Assigned Specialist Agent *</label>
+              <select id="task-agent-select" class="form-input">
+                <option value="agent_sales">Sales Specialist (agent_sales)</option>
+                <option value="agent_marketing">Marketing Specialist (agent_marketing)</option>
+                <option value="agent_operations">Operations Specialist (agent_operations)</option>
+                <option value="agent_receptionist">Receptionist (agent_receptionist)</option>
+                <option value="agent_executive">Executive Specialist (agent_executive)</option>
+              </select>
+            </div>
+            <div class="form-field">
+              <label class="form-label" for="task-priority-select">Priority</label>
+              <select id="task-priority-select" class="form-input">
+                <option value="medium">Medium</option>
+                <option value="high">High</option>
+                <option value="urgent">Urgent</option>
+                <option value="low">Low</option>
+              </select>
+            </div>
+            <div class="form-field">
+              <label class="form-label" for="task-instruction-input">Instruction / Objective *</label>
+              <textarea id="task-instruction-input" class="form-input" rows="4" placeholder="Describe the goal or prompt for the specialist agent…"></textarea>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button class="btn btn-secondary" id="btn-cancel-task-modal">Cancel</button>
+            <button class="btn btn-primary" id="btn-submit-task-modal">Create Task</button>
+          </div>
+        </div>
+      </div>`;
+
+    const close = () => { modalRoot.innerHTML = ''; };
+    document.getElementById('btn-close-task-modal').onclick = close;
+    document.getElementById('btn-cancel-task-modal').onclick = close;
+    document.getElementById('modal-task-overlay').onclick = (e) => {
+      if (e.target.id === 'modal-task-overlay') close();
+    };
+
+    document.getElementById('btn-submit-task-modal').onclick = async () => {
+      const title = document.getElementById('task-title-input')?.value.trim();
+      const agentId = document.getElementById('task-agent-select')?.value;
+      const priority = document.getElementById('task-priority-select')?.value || 'medium';
+      const instruction = document.getElementById('task-instruction-input')?.value.trim();
+
+      if (!title) return alert('Task title is required.');
+      if (!instruction) return alert('Task instruction is required.');
+
+      try {
+        await MesniumClient.request('mesnium.tasks.create', {
+          title,
+          agentId,
+          priority,
+          instruction
+        });
+        close();
+        await handlersWork();
+      } catch (err) {
+        alert('Failed to create task: ' + err.message);
+      }
+    };
   }
 
   function openCreateAutomationModal() {
@@ -5245,7 +6043,7 @@
   }
 
   // ─── SETTINGS HANDLERS ─────────────────────────────────────────────────────
-  function handlersSettings() {
+  async function handlersSettings() {
     document.querySelectorAll('[data-settings-tab]').forEach(btn => {
       btn.onclick = (e) => {
         e.preventDefault();
@@ -5266,6 +6064,126 @@
           renderApp();
         }
       };
+    }
+
+    if (state.settingsTab === 'providers') {
+      await wireSettingsProviders();
+    }
+  }
+
+  async function wireSettingsProviders() {
+    const diagContainer = document.getElementById('provider-diagnostic-container');
+    const badgeGoogle = document.getElementById('badge-prov-google');
+    const badgeAnthropic = document.getElementById('badge-prov-anthropic');
+    const badgeOpenai = document.getElementById('badge-prov-openai');
+
+    try {
+      const diag = await MesniumClient.request('mesnium.provider.status').catch(() => null);
+      if (diagContainer && diag) {
+        diagContainer.innerHTML = `
+          <div class="provider-diagnostic-banner ${diag.ready ? 'provider-diagnostic--ready' : 'provider-diagnostic--unready'}">
+            <div style="font-size:18px;">${diag.ready ? '✓' : '⚠️'}</div>
+            <div>
+              <div style="font-weight:600;font-size:13px;color:${diag.ready ? '#81c995' : '#f28b82'};">
+                ${diag.ready ? 'Active AI Provider: ' + h(diag.provider) : 'AI Provider Not Ready'}
+              </div>
+              <div style="font-size:12px;color:#ceced6;margin-top:2px;">
+                ${h(diag.message || 'Verification or configuration required.')}
+              </div>
+            </div>
+          </div>
+        `;
+
+        if (badgeGoogle) {
+          if (diag.provider === 'google') {
+            badgeGoogle.className = `badge ${diag.ready ? 'badge--ok' : 'badge--warn'}`;
+            badgeGoogle.textContent = diag.ready ? 'Active' : (diag.code || 'Unready');
+          } else {
+            badgeGoogle.className = 'badge badge--neutral';
+            badgeGoogle.textContent = 'Configurable';
+          }
+        }
+        if (badgeAnthropic) {
+          if (diag.provider === 'anthropic') {
+            badgeAnthropic.className = `badge ${diag.ready ? 'badge--ok' : 'badge--warn'}`;
+            badgeAnthropic.textContent = diag.ready ? 'Active' : (diag.code || 'Unready');
+          } else {
+            badgeAnthropic.className = 'badge badge--neutral';
+            badgeAnthropic.textContent = 'Configurable';
+          }
+        }
+        if (badgeOpenai) {
+          if (diag.provider === 'openai') {
+            badgeOpenai.className = `badge ${diag.ready ? 'badge--ok' : 'badge--warn'}`;
+            badgeOpenai.textContent = diag.ready ? 'Active' : (diag.code || 'Unready');
+          } else {
+            badgeOpenai.className = 'badge badge--neutral';
+            badgeOpenai.textContent = 'Configurable';
+          }
+        }
+      }
+
+      // Wire save buttons
+      const saveGoogle = document.getElementById('btn-save-key-google');
+      if (saveGoogle) {
+        saveGoogle.onclick = async () => {
+          const val = document.getElementById('key-input-google')?.value.trim();
+          if (!val) return alert('Enter a Gemini API Key.');
+          saveGoogle.disabled = true;
+          saveGoogle.textContent = 'Saving…';
+          try {
+            await MesniumClient.request('mesnium.credentials.set', { providerId: 'google', apiKey: val });
+            alert('Google Gemini key saved.');
+            renderApp();
+          } catch (err) {
+            alert('Failed to save key: ' + err.message);
+            saveGoogle.disabled = false;
+            saveGoogle.textContent = 'Save';
+          }
+        };
+      }
+
+      const saveAnthropic = document.getElementById('btn-save-key-anthropic');
+      if (saveAnthropic) {
+        saveAnthropic.onclick = async () => {
+          const val = document.getElementById('key-input-anthropic')?.value.trim();
+          if (!val) return alert('Enter an Anthropic API Key.');
+          saveAnthropic.disabled = true;
+          saveAnthropic.textContent = 'Saving…';
+          try {
+            await MesniumClient.request('mesnium.credentials.set', { providerId: 'anthropic', apiKey: val });
+            alert('Anthropic key saved.');
+            renderApp();
+          } catch (err) {
+            alert('Failed to save key: ' + err.message);
+            saveAnthropic.disabled = false;
+            saveAnthropic.textContent = 'Save';
+          }
+        };
+      }
+
+      const saveOpenai = document.getElementById('btn-save-key-openai');
+      if (saveOpenai) {
+        saveOpenai.onclick = async () => {
+          const val = document.getElementById('key-input-openai')?.value.trim();
+          if (!val) return alert('Enter an OpenAI API Key.');
+          saveOpenai.disabled = true;
+          saveOpenai.textContent = 'Saving…';
+          try {
+            await MesniumClient.request('mesnium.credentials.set', { providerId: 'openai', apiKey: val });
+            alert('OpenAI key saved.');
+            renderApp();
+          } catch (err) {
+            alert('Failed to save key: ' + err.message);
+            saveOpenai.disabled = false;
+            saveOpenai.textContent = 'Save';
+          }
+        };
+      }
+    } catch (err) {
+      if (diagContainer) {
+        diagContainer.innerHTML = `<div class="error-state">${h(translateErrorMessage(err))}</div>`;
+      }
     }
   }
 

@@ -156,7 +156,14 @@ const coreGatewayHandlers = {
 			"mesnium.mcp.servers.test",
 			"mesnium.credentials.set",
 			"mesnium.credentials.remove",
-			"mesnium.credentials.report"
+			"mesnium.credentials.report",
+			"mesnium.provider.status",
+			"mesnium.tasks.list",
+			"mesnium.tasks.get",
+			"mesnium.tasks.create",
+			"mesnium.tasks.update",
+			"mesnium.tasks.delete",
+			"mesnium.tasks.run"
 		],
 		loadHandlers: loadMesniumHandlers
 	}),
