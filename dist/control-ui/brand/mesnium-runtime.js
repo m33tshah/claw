@@ -1871,6 +1871,7 @@
   function surfaceSettings() {
     const tabs = [
       { id: 'workspace',  label: 'Workspace' },
+      { id: 'business',   label: 'Business & Packs' },
       { id: 'providers',  label: 'AI Providers' },
       { id: 'security',   label: 'Security' },
       { id: 'system',     label: 'System' },
@@ -1911,6 +1912,85 @@
             <div class="form-actions" style="margin-top:16px;">
               <button class="btn btn-primary" id="btn-save-general">Save Changes</button>
             </div>
+          </div>`;
+
+      case 'business':
+        return `
+          <div class="settings-card" style="margin-bottom:20px;">
+            <h3 style="margin:0 0 8px 0;font-size:16px;">Business Profile & Identity</h3>
+            <p style="color:#a0a0b0;font-size:13px;margin:0 0 16px 0;">
+              Structured configuration defining your organization identity, brand voice, and operating boundaries for all Mesnium workforce agents.
+            </p>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
+              <div class="form-field">
+                <label class="form-label" for="biz-cfg-name">Business Name</label>
+                <input type="text" id="biz-cfg-name" class="form-input" placeholder="e.g. Acme Realty" />
+              </div>
+              <div class="form-field">
+                <label class="form-label" for="biz-cfg-industry">Industry Vertical</label>
+                <input type="text" id="biz-cfg-industry" class="form-input" placeholder="e.g. Real Estate" />
+              </div>
+            </div>
+            <div class="form-field" style="margin-top:14px;">
+              <label class="form-label" for="biz-cfg-desc">Company Description</label>
+              <textarea id="biz-cfg-desc" class="form-input" style="height:60px;resize:vertical;" placeholder="Core business mission and specialty..."></textarea>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:14px;">
+              <div class="form-field">
+                <label class="form-label" for="biz-cfg-location">Location / Service Area</label>
+                <input type="text" id="biz-cfg-location" class="form-input" placeholder="e.g. Seattle, WA" />
+              </div>
+              <div class="form-field">
+                <label class="form-label" for="biz-cfg-hours">Operating Hours</label>
+                <input type="text" id="biz-cfg-hours" class="form-input" placeholder="e.g. Mon-Fri 09:00 - 18:00" />
+              </div>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:14px;">
+              <div class="form-field">
+                <label class="form-label" for="biz-cfg-tone">Brand Voice & Tone</label>
+                <input type="text" id="biz-cfg-tone" class="form-input" placeholder="e.g. Consultative, trustworthy, responsive" />
+              </div>
+              <div class="form-field">
+                <label class="form-label" for="biz-cfg-must-not-say">Strict Prohibitions (Must NOT Say)</label>
+                <input type="text" id="biz-cfg-must-not-say" class="form-input" placeholder="e.g. Never guarantee returns; no legal advice" />
+              </div>
+            </div>
+            <div class="form-actions" style="margin-top:16px;display:flex;justify-content:flex-end;">
+              <button class="btn btn-primary" id="btn-save-biz-profile">Save Business Context</button>
+            </div>
+          </div>
+
+          <div class="settings-card" style="margin-bottom:20px;">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px;">
+              <div>
+                <h3 style="margin:0 0 4px 0;font-size:16px;">Business Packs</h3>
+                <p style="color:#a0a0b0;font-size:13px;margin:0;">
+                  Business Packs provide structured configuration defaults that teach the existing Mesnium workforce how to operate in specific SMB verticals.
+                </p>
+              </div>
+              <span class="badge badge--neutral" style="font-size:11px;">Configuration Layer</span>
+            </div>
+            <div id="biz-packs-container" style="display:flex;flex-direction:column;gap:12px;margin-top:16px;">
+              <div class="conn-loading"><span>Loading business packs...</span></div>
+            </div>
+          </div>
+
+          <div class="settings-card">
+            <h3 style="margin:0 0 8px 0;font-size:16px;">Effective Agent Configuration & Provenance Inspector</h3>
+            <p style="color:#a0a0b0;font-size:13px;margin:0 0 16px 0;">
+              Inspect the exact effective configuration and source provenance for each workforce specialist (Core, Pack Defaults, Customer Overrides).
+            </p>
+            <div style="display:flex;gap:10px;align-items:center;margin-bottom:14px;">
+              <select id="sel-effective-agent" class="form-input" style="max-width:240px;">
+                <option value="agent_sales">Sales Agent</option>
+                <option value="agent_receptionist">AI Receptionist</option>
+                <option value="agent_marketing">Marketing Agent</option>
+                <option value="agent_operations">Operations Agent</option>
+                <option value="agent_executive">Executive Assistant</option>
+              </select>
+              <button class="btn btn-secondary btn-sm" id="btn-inspect-effective">Inspect Effective Context</button>
+            </div>
+            <div id="effective-inspector-output" style="background:#0d0d14;border:1px solid #1a1a26;border-radius:6px;padding:14px;font-family:monospace;font-size:12px;color:#ceced6;white-space:pre-wrap;max-height:300px;overflow-y:auto;">Select a specialist agent and click Inspect to review effective configuration and provenance.</div>
           </div>`;
 
       case 'providers':
@@ -6084,6 +6164,9 @@
     if (state.settingsTab === 'providers') {
       await wireSettingsProviders();
     }
+    if (state.settingsTab === 'business') {
+      await wireSettingsBusiness();
+    }
   }
 
   async function wireSettingsProviders() {
@@ -6199,6 +6282,173 @@
       if (diagContainer) {
         diagContainer.innerHTML = `<div class="error-state">${h(translateErrorMessage(err))}</div>`;
       }
+    }
+  }
+
+  async function wireSettingsBusiness() {
+    const wsId = 'default';
+    const packsContainer = document.getElementById('biz-packs-container');
+    const inspectorOutput = document.getElementById('effective-inspector-output');
+    const selAgent = document.getElementById('sel-effective-agent');
+    const btnInspect = document.getElementById('btn-inspect-effective');
+    const btnSaveBiz = document.getElementById('btn-save-biz-profile');
+
+    // 1. Load active business context into form
+    try {
+      const res = await MesniumClient.request('mesnium.business.context.get', { workspaceId: wsId }).catch(() => null);
+      const ctx = res?.context || {};
+      const id = ctx.identity || {};
+      const brand = ctx.brand || {};
+      const pol = ctx.policies || {};
+
+      const elName = document.getElementById('biz-cfg-name');
+      const elInd = document.getElementById('biz-cfg-industry');
+      const elDesc = document.getElementById('biz-cfg-desc');
+      const elLoc = document.getElementById('biz-cfg-location');
+      const elHours = document.getElementById('biz-cfg-hours');
+      const elTone = document.getElementById('biz-cfg-tone');
+      const elMustNot = document.getElementById('biz-cfg-must-not-say');
+
+      if (elName && id.businessName) elName.value = id.businessName;
+      if (elInd && id.industry) elInd.value = id.industry;
+      if (elDesc && id.description) elDesc.value = id.description;
+      if (elLoc && id.location) elLoc.value = id.location;
+      if (elHours && id.operatingHours) elHours.value = id.operatingHours;
+      if (elTone && brand.tone) elTone.value = brand.tone;
+      if (elMustNot && Array.isArray(pol.thingsAgentsMustNotSay)) {
+        elMustNot.value = pol.thingsAgentsMustNotSay.join('; ');
+      }
+    } catch (e) {
+      console.warn('Failed to load business context:', e);
+    }
+
+    // 2. Save Business Context Button
+    if (btnSaveBiz) {
+      btnSaveBiz.onclick = async () => {
+        btnSaveBiz.disabled = true;
+        btnSaveBiz.textContent = 'Saving…';
+        try {
+          const name = document.getElementById('biz-cfg-name')?.value?.trim();
+          const industry = document.getElementById('biz-cfg-industry')?.value?.trim();
+          const description = document.getElementById('biz-cfg-desc')?.value?.trim();
+          const location = document.getElementById('biz-cfg-location')?.value?.trim();
+          const operatingHours = document.getElementById('biz-cfg-hours')?.value?.trim();
+          const tone = document.getElementById('biz-cfg-tone')?.value?.trim();
+          const mustNotSayRaw = document.getElementById('biz-cfg-must-not-say')?.value?.trim();
+
+          const patch = {
+            identity: {
+              ...(name ? { businessName: name } : {}),
+              ...(industry ? { industry } : {}),
+              ...(description ? { description } : {}),
+              ...(location ? { location } : {}),
+              ...(operatingHours ? { operatingHours } : {})
+            },
+            ...(tone ? { brand: { tone } } : {}),
+            ...(mustNotSayRaw ? { policies: { thingsAgentsMustNotSay: mustNotSayRaw.split(';').map(s => s.trim()).filter(Boolean) } } : {})
+          };
+
+          await MesniumClient.request('mesnium.business.context.set', { workspaceId: wsId, patch });
+          alert('Business context updated successfully.');
+        } catch (err) {
+          alert(`Error saving business context: ${err.message}`);
+        } finally {
+          btnSaveBiz.disabled = false;
+          btnSaveBiz.textContent = 'Save Business Context';
+        }
+      };
+    }
+
+    // 3. Load Business Packs
+    async function loadPacks() {
+      if (!packsContainer) return;
+      try {
+        const res = await MesniumClient.request('mesnium.business.packs.list', { workspaceId: wsId }).catch(() => null);
+        const packs = res?.packs || [];
+        if (packs.length === 0) {
+          packsContainer.innerHTML = `<div style="color:#747484;font-size:13px;">No business packs found in registry.</div>`;
+          return;
+        }
+
+        packsContainer.innerHTML = packs.map(p => `
+          <div style="padding:14px 16px;background:#0d0d14;border:1px solid #1a1a26;border-radius:6px;display:flex;justify-content:space-between;align-items:center;">
+            <div>
+              <div style="display:flex;align-items:center;gap:8px;">
+                <strong style="color:#ffffff;font-size:14px;">${h(p.name)}</strong>
+                <span class="badge ${p.active ? 'badge--ok' : 'badge--neutral'}" style="font-size:10px;">${p.active ? 'ACTIVE' : 'AVAILABLE'}</span>
+                <span style="font-size:11px;color:#747484;">v${h(p.version)}</span>
+              </div>
+              <div style="font-size:12px;color:#a0a0b0;margin-top:4px;">${h(p.description)}</div>
+              <div style="font-size:11px;color:#747484;margin-top:6px;">
+                Expected capabilities: <span style="color:#c5c5d2;">${(p.capabilityRequirements || []).join(', ') || 'none'}</span>
+              </div>
+            </div>
+            <div>
+              <button class="btn ${p.active ? 'btn-secondary' : 'btn-primary'} btn-sm" id="btn-pack-toggle-${p.id}">
+                ${p.active ? 'Deactivate' : 'Activate Pack'}
+              </button>
+            </div>
+          </div>
+        `).join('');
+
+        packs.forEach(p => {
+          const btn = document.getElementById(`btn-pack-toggle-${p.id}`);
+          if (btn) {
+            btn.onclick = async () => {
+              btn.disabled = true;
+              try {
+                if (p.active) {
+                  await MesniumClient.request('mesnium.business.packs.deactivate', { workspaceId: wsId, packId: p.id });
+                  alert(`Deactivated ${p.name}.`);
+                } else {
+                  await MesniumClient.request('mesnium.business.packs.activate', { workspaceId: wsId, packId: p.id });
+                  alert(`Activated ${p.name}! Canonical agents configured for ${p.category}.`);
+                }
+                await loadPacks();
+              } catch (err) {
+                alert(`Pack operation failed: ${err.message}`);
+                btn.disabled = false;
+              }
+            };
+          }
+        });
+      } catch (e) {
+        packsContainer.innerHTML = `<div style="color:#e05252;font-size:12px;">Failed to load packs: ${e.message}</div>`;
+      }
+    }
+    await loadPacks();
+
+    // 4. Effective Configuration Inspector
+    if (btnInspect && inspectorOutput) {
+      btnInspect.onclick = async () => {
+        const agentId = selAgent ? selAgent.value : 'agent_sales';
+        btnInspect.disabled = true;
+        btnInspect.textContent = 'Inspecting…';
+        try {
+          const res = await MesniumClient.request('mesnium.business.effective.get', { workspaceId: wsId, agentId });
+          if (!res) throw new Error('No effective configuration returned.');
+
+          const lines = [];
+          lines.push(`=== EFFECTIVE BUSINESS CONFIGURATION FOR [${agentId}] ===\n`);
+          lines.push(`Active Business Packs: ${(res.activePacks || []).map(p => p.name).join(', ') || 'None (Core Defaults)'}\n`);
+          lines.push(`--- Key Fields & Provenance ---`);
+          lines.push(`Business Name:  ${res.effective?.identity?.businessName || ''} [source: ${res.provenance?.['identity.businessName']?.source || 'core'}]`);
+          lines.push(`Industry:       ${res.effective?.identity?.industry || ''} [source: ${res.provenance?.['identity.industry']?.source || 'core'}]`);
+          lines.push(`Brand Tone:     ${res.effective?.brand?.tone || ''} [source: ${res.provenance?.['brand.tone']?.source || 'core'}]`);
+          
+          if (res.projectedPrompt) {
+            lines.push(`\n--- Projected Model Prompt Context (< 1.5 KB) ---`);
+            lines.push(res.projectedPrompt);
+          }
+
+          inspectorOutput.textContent = lines.join('\n');
+        } catch (err) {
+          inspectorOutput.textContent = `Error inspecting effective configuration: ${err.message}`;
+        } finally {
+          btnInspect.disabled = false;
+          btnInspect.textContent = 'Inspect Effective Context';
+        }
+      };
     }
   }
 

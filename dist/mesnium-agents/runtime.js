@@ -786,6 +786,60 @@ export class MesniumAgentRuntime {
   }
 
   /**
+   * Builds distinct, layered agent context:
+   * BASE AGENT + BUSINESS CONTEXT PROJECTION + RELEVANT MEMORY + RELEVANT KNOWLEDGE + CURRENT TASK
+   * 
+   * Returns clean breakdown of layers and the final effective systemPrompt.
+   */
+  async buildAgentContextLayers(agent, prompt, options = {}) {
+    const wsId = options.workspaceId || agent.workspaceId || 'default';
+    const rawAllowed = (Array.isArray(agent.allowedTools) ? agent.allowedTools : [])
+      .concat(Array.isArray(agent.capabilities) ? agent.capabilities : []);
+    const baseAllowed = Array.from(new Set(rawAllowed.map(normalizeTool)));
+    const allowedTools = Array.isArray(options.allowedTools)
+      ? options.allowedTools.map(normalizeTool).filter(t => baseAllowed.includes(t))
+      : baseAllowed;
+
+    // Layer 1: Base Agent Instructions
+    const baseInstructions = agent.instructions || `You are ${agent.name}.`;
+
+    // Layer 2: Business Context Projection (Role-Tailored)
+    let businessContext = '';
+    try {
+      const { getSharedBusinessContextManager } = await import('../mesnium-business/index.js');
+      const bizMgr = getSharedBusinessContextManager();
+      businessContext = bizMgr.getAgentBusinessContext(wsId, agent.id);
+    } catch (_) {}
+
+    // Layer 3: Relevant Memory
+    const memoryContext = this.memory?.getMemoryContext(wsId, agent.id) || '';
+
+    // Layer 4: Knowledge Retrieval Guidance
+    let knowledgeGuidance = '';
+    if (allowedTools.includes(CanonicalTools.KNOWLEDGE_SEARCH)) {
+      knowledgeGuidance = `[Knowledge Retrieval]\nYou have access to the workspace knowledge base via \`knowledge_search\`. Retrieve authoritative document context when addressing questions regarding business data, company operations, or policies.`;
+    }
+
+    // Assemble Effective Model System Prompt
+    const layers = [baseInstructions];
+    if (businessContext) layers.push(businessContext);
+    if (memoryContext) layers.push(memoryContext);
+    if (knowledgeGuidance) layers.push(knowledgeGuidance);
+    const systemPrompt = layers.join('\n\n');
+
+    return {
+      workspaceId: wsId,
+      baseInstructions,
+      businessContext,
+      memoryContext,
+      knowledgeGuidance,
+      systemPrompt,
+      userPrompt: prompt,
+      allowedTools
+    };
+  }
+
+  /**
    * Run a task prompt or structured action through a specific Mesnium Agent.
    * Supports both deterministic tool execution and autonomous multi-step model tool calling.
    */
@@ -875,14 +929,8 @@ export class MesniumAgentRuntime {
           .filter(Boolean);
 
         const { complete } = await import('../plugin-sdk/llm.js');
-        const memoryContext = this.memory?.getMemoryContext(agent.workspaceId || 'default', agent.id) || '';
-        let systemPrompt = agent.instructions || `You are ${agent.name}.`;
-        if (memoryContext) {
-          systemPrompt += `\n\n${memoryContext}`;
-        }
-        if (allowedTools.includes(CanonicalTools.KNOWLEDGE_SEARCH)) {
-          systemPrompt += `\n\n[Knowledge Retrieval]\nYou have access to the workspace knowledge base via \`knowledge_search\`. Retrieve authoritative document context when addressing questions regarding business data, company operations, or policies.`;
-        }
+        const contextLayers = await this.buildAgentContextLayers(agent, prompt, options);
+        const systemPrompt = contextLayers.systemPrompt;
 
         const messages = [{ role: 'user', content: prompt }];
         finalModelText = '';
@@ -1186,4 +1234,11 @@ export function runAgent(agentId, options, workspaceId) {
 
 export function executeToolForAgent(agentOrId, toolName, params, workspaceId) {
   return getSharedAgentRuntime().executeToolForAgent(agentOrId, toolName, params, workspaceId);
+}
+
+export async function getAgentContextLayers(agentId, prompt, options = {}) {
+  const runtime = getSharedAgentRuntime();
+  const agent = runtime.registry.getAgent(agentId);
+  if (!agent) throw new Error(`Agent with ID "${agentId}" does not exist.`);
+  return runtime.buildAgentContextLayers(agent, prompt, options);
 }

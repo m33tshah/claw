@@ -48,6 +48,7 @@ import { getSharedMcpManager } from '../mcp/manager.js';
 import { getSharedCapabilityRegistry } from '../capabilities/registry.js';
 import { getSharedTaskManager } from '../mesnium-tasks/index.js';
 import { getSharedPublicTenantManager } from '../mesnium-public/tenants.js';
+import { getSharedBusinessContextManager, assertValidWorkspaceId } from '../mesnium-business/index.js';
 
 let sharedKm = null;
 
@@ -1143,6 +1144,90 @@ export const mesniumRpcHandlers = {
         businessName: tenant?.businessName || 'Mesnium Business',
         embedSnippet,
         updatedAt: tenant?.updatedAt || Date.now()
+      });
+    } catch (err) {
+      respond(false, void 0, { message: err.message });
+    }
+  },
+
+  // -------------------------------------------------------------
+  // 17. Business Context & Business Packs Management (Phase 3)
+  // -------------------------------------------------------------
+  'mesnium.business.context.get': async ({ params = {}, respond }) => {
+    try {
+      assertValidWorkspaceId(params.workspaceId, 'mesnium.business.context.get');
+      const bizManager = getSharedBusinessContextManager();
+      const context = bizManager.getContext(params.workspaceId);
+      respond(true, { context });
+    } catch (err) {
+      respond(false, void 0, { message: err.message });
+    }
+  },
+
+  'mesnium.business.context.set': async ({ params = {}, respond }) => {
+    try {
+      assertValidWorkspaceId(params.workspaceId, 'mesnium.business.context.set');
+      if (!params.patch || typeof params.patch !== 'object') {
+        throw new Error('Business context patch must be a valid object.');
+      }
+      const bizManager = getSharedBusinessContextManager();
+      const context = bizManager.updateContext(params.workspaceId, params.patch);
+      respond(true, { context, success: true });
+    } catch (err) {
+      respond(false, void 0, { message: err.message });
+    }
+  },
+
+  'mesnium.business.packs.list': async ({ params = {}, respond }) => {
+    try {
+      const bizManager = getSharedBusinessContextManager();
+      const packs = bizManager.listPacks(params.workspaceId || null);
+      respond(true, { packs });
+    } catch (err) {
+      respond(false, void 0, { message: err.message });
+    }
+  },
+
+  'mesnium.business.packs.activate': async ({ params = {}, respond }) => {
+    try {
+      assertValidWorkspaceId(params.workspaceId, 'mesnium.business.packs.activate');
+      if (!params.packId) throw new Error('packId is required.');
+      const bizManager = getSharedBusinessContextManager();
+      const entitlements = bizManager.activatePack(params.workspaceId, params.packId);
+      respond(true, { success: true, packId: params.packId, entitlements });
+    } catch (err) {
+      respond(false, void 0, { message: err.message });
+    }
+  },
+
+  'mesnium.business.packs.deactivate': async ({ params = {}, respond }) => {
+    try {
+      assertValidWorkspaceId(params.workspaceId, 'mesnium.business.packs.deactivate');
+      if (!params.packId) throw new Error('packId is required.');
+      const bizManager = getSharedBusinessContextManager();
+      const entitlements = bizManager.deactivatePack(params.workspaceId, params.packId);
+      respond(true, { success: true, packId: params.packId, entitlements });
+    } catch (err) {
+      respond(false, void 0, { message: err.message });
+    }
+  },
+
+  'mesnium.business.effective.get': async ({ params = {}, respond }) => {
+    try {
+      assertValidWorkspaceId(params.workspaceId, 'mesnium.business.effective.get');
+      const bizManager = getSharedBusinessContextManager();
+      const effectiveData = bizManager.getEffectiveConfiguration(params.workspaceId, params.agentId || null);
+      let projectedPrompt = '';
+      if (params.agentId) {
+        projectedPrompt = bizManager.getAgentBusinessContext(params.workspaceId, params.agentId);
+      }
+      respond(true, {
+        workspaceId: params.workspaceId,
+        targetAgentId: params.agentId || null,
+        effective: effectiveData.effective,
+        provenance: effectiveData.provenance,
+        activePacks: effectiveData.activePacks,
+        projectedPrompt
       });
     } catch (err) {
       respond(false, void 0, { message: err.message });

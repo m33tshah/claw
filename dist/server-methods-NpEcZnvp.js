@@ -165,7 +165,13 @@ const coreGatewayHandlers = {
 			"mesnium.tasks.delete",
 			"mesnium.tasks.run",
 			"mesnium.widget.config.get",
-			"mesnium.widget.config.set"
+			"mesnium.widget.config.set",
+			"mesnium.business.context.get",
+			"mesnium.business.context.set",
+			"mesnium.business.packs.list",
+			"mesnium.business.packs.activate",
+			"mesnium.business.packs.deactivate",
+			"mesnium.business.effective.get"
 		],
 		loadHandlers: loadMesniumHandlers
 	}),
