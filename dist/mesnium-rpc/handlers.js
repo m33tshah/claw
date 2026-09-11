@@ -49,6 +49,7 @@ import { getSharedCapabilityRegistry } from '../capabilities/registry.js';
 import { getSharedTaskManager } from '../mesnium-tasks/index.js';
 import { getSharedPublicTenantManager } from '../mesnium-public/tenants.js';
 import { getSharedBusinessContextManager, assertValidWorkspaceId } from '../mesnium-business/index.js';
+import { getSharedWorkflowManager } from '../mesnium-workflows/index.js';
 
 let sharedKm = null;
 
@@ -1229,6 +1230,173 @@ export const mesniumRpcHandlers = {
         activePacks: effectiveData.activePacks,
         projectedPrompt
       });
+    } catch (err) {
+      respond(false, void 0, { message: err.message });
+    }
+  },
+
+  // -------------------------------------------------------------
+  // 18. Business Workflows & Templates Management (Phase 4)
+  // -------------------------------------------------------------
+  'mesnium.workflows.list': async ({ params = {}, respond }) => {
+    try {
+      assertValidWorkspaceId(params.workspaceId, 'mesnium.workflows.list');
+      const mgr = getSharedWorkflowManager();
+      const workflows = mgr.listWorkflows(params.workspaceId);
+      respond(true, { workflows });
+    } catch (err) {
+      respond(false, void 0, { message: err.message });
+    }
+  },
+
+  'mesnium.workflows.get': async ({ params = {}, respond }) => {
+    try {
+      assertValidWorkspaceId(params.workspaceId, 'mesnium.workflows.get');
+      const wfId = params.workflowId || params.id;
+      if (!wfId) throw new Error('workflowId is required.');
+      const mgr = getSharedWorkflowManager();
+      const workflow = mgr.getWorkflow(params.workspaceId, wfId);
+      respond(true, { workflow });
+    } catch (err) {
+      respond(false, void 0, { message: err.message });
+    }
+  },
+
+  'mesnium.workflows.create': async ({ params = {}, respond }) => {
+    try {
+      assertValidWorkspaceId(params.workspaceId, 'mesnium.workflows.create');
+      const def = params.definition || params.workflow || params;
+      const mgr = getSharedWorkflowManager();
+      const workflow = mgr.createWorkflow(params.workspaceId, def);
+      respond(true, { workflow, success: true });
+    } catch (err) {
+      respond(false, void 0, { message: err.message });
+    }
+  },
+
+  'mesnium.workflows.update': async ({ params = {}, respond }) => {
+    try {
+      assertValidWorkspaceId(params.workspaceId, 'mesnium.workflows.update');
+      const wfId = params.workflowId || params.id;
+      if (!wfId) throw new Error('workflowId is required.');
+      const patch = params.patch || {};
+      const mgr = getSharedWorkflowManager();
+      const workflow = mgr.updateWorkflow(params.workspaceId, wfId, patch);
+      respond(true, { workflow, success: true });
+    } catch (err) {
+      respond(false, void 0, { message: err.message });
+    }
+  },
+
+  'mesnium.workflows.delete': async ({ params = {}, respond }) => {
+    try {
+      assertValidWorkspaceId(params.workspaceId, 'mesnium.workflows.delete');
+      const wfId = params.workflowId || params.id;
+      if (!wfId) throw new Error('workflowId is required.');
+      const mgr = getSharedWorkflowManager();
+      const success = mgr.deleteWorkflow(params.workspaceId, wfId);
+      respond(true, { success });
+    } catch (err) {
+      respond(false, void 0, { message: err.message });
+    }
+  },
+
+  'mesnium.workflows.activate': async ({ params = {}, respond }) => {
+    try {
+      assertValidWorkspaceId(params.workspaceId, 'mesnium.workflows.activate');
+      const wfId = params.workflowId || params.id;
+      if (!wfId) throw new Error('workflowId is required.');
+      const mgr = getSharedWorkflowManager();
+      const workflow = mgr.activateWorkflow(params.workspaceId, wfId);
+      respond(true, { workflow, success: true });
+    } catch (err) {
+      respond(false, void 0, { message: err.message });
+    }
+  },
+
+  'mesnium.workflows.pause': async ({ params = {}, respond }) => {
+    try {
+      assertValidWorkspaceId(params.workspaceId, 'mesnium.workflows.pause');
+      const wfId = params.workflowId || params.id;
+      if (!wfId) throw new Error('workflowId is required.');
+      const mgr = getSharedWorkflowManager();
+      const workflow = mgr.pauseWorkflow(params.workspaceId, wfId);
+      respond(true, { workflow, success: true });
+    } catch (err) {
+      respond(false, void 0, { message: err.message });
+    }
+  },
+
+  'mesnium.workflows.run': async ({ params = {}, respond }) => {
+    try {
+      assertValidWorkspaceId(params.workspaceId, 'mesnium.workflows.run');
+      const wfId = params.workflowId || params.id;
+      if (!wfId) throw new Error('workflowId is required.');
+      const mgr = getSharedWorkflowManager();
+      const run = await mgr.runWorkflow(params.workspaceId, wfId, params.input || {}, params.trigger || 'manual');
+      respond(true, { run, success: true });
+    } catch (err) {
+      respond(false, void 0, { message: err.message });
+    }
+  },
+
+  'mesnium.workflows.runs.list': async ({ params = {}, respond }) => {
+    try {
+      assertValidWorkspaceId(params.workspaceId, 'mesnium.workflows.runs.list');
+      const mgr = getSharedWorkflowManager();
+      const runs = mgr.listRuns(params.workspaceId, {
+        workflowId: params.workflowId || null,
+        limit: params.limit || 50
+      });
+      respond(true, { runs });
+    } catch (err) {
+      respond(false, void 0, { message: err.message });
+    }
+  },
+
+  'mesnium.workflows.runs.get': async ({ params = {}, respond }) => {
+    try {
+      assertValidWorkspaceId(params.workspaceId, 'mesnium.workflows.runs.get');
+      const runId = params.runId || params.id;
+      if (!runId) throw new Error('runId is required.');
+      const mgr = getSharedWorkflowManager();
+      const run = mgr.getRun(params.workspaceId, runId);
+      respond(true, { run });
+    } catch (err) {
+      respond(false, void 0, { message: err.message });
+    }
+  },
+
+  'mesnium.workflows.cancel': async ({ params = {}, respond }) => {
+    try {
+      assertValidWorkspaceId(params.workspaceId, 'mesnium.workflows.cancel');
+      const runId = params.runId || params.id;
+      if (!runId) throw new Error('runId is required.');
+      const mgr = getSharedWorkflowManager();
+      const run = mgr.cancelRun(params.workspaceId, runId, params.reason || 'Cancelled by user');
+      respond(true, { run, success: true });
+    } catch (err) {
+      respond(false, void 0, { message: err.message });
+    }
+  },
+
+  'mesnium.workflows.templates.list': async ({ params = {}, respond }) => {
+    try {
+      const mgr = getSharedWorkflowManager();
+      const templates = mgr.listTemplates(params.category || null);
+      respond(true, { templates });
+    } catch (err) {
+      respond(false, void 0, { message: err.message });
+    }
+  },
+
+  'mesnium.workflows.templates.get': async ({ params = {}, respond }) => {
+    try {
+      const tmplId = params.templateId || params.id;
+      if (!tmplId) throw new Error('templateId is required.');
+      const mgr = getSharedWorkflowManager();
+      const template = mgr.getTemplate(tmplId);
+      respond(true, { template });
     } catch (err) {
       respond(false, void 0, { message: err.message });
     }

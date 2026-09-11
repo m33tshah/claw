@@ -1714,6 +1714,7 @@
     const subtabs = [
       { id: 'tasks',       label: 'Tasks' },
       { id: 'automations', label: 'Automations' },
+      { id: 'workflows',   label: 'Workflows' },
       { id: 'approvals',   label: 'Approvals' }
     ];
     return `
@@ -1732,7 +1733,11 @@
               <button class="btn btn-primary" id="btn-create-automation">
                 ${icon('plus', 16)} Create Automation
               </button>
-            ` : '')}
+            ` : (section === 'workflows' ? `
+              <button class="btn btn-primary" id="btn-create-workflow">
+                ${icon('plus', 16)} New Workflow
+              </button>
+            ` : ''))}
           </div>
         </div>
 
@@ -5103,6 +5108,38 @@
       btnCreateAuto.onclick = () => openCreateAutomationModal();
     }
 
+    const btnCreateWf = document.getElementById('btn-create-workflow');
+    if (btnCreateWf) {
+      btnCreateWf.onclick = async () => {
+        const name = prompt('Enter a name for the new workflow:', 'Client Onboarding & Intake');
+        if (!name) return;
+        const wsId = state.activeWorkspaceId || 'default';
+        try {
+          await MesniumClient.request('mesnium.workflows.create', {
+            workspaceId: wsId,
+            definition: {
+              name: name.trim(),
+              description: 'Multi-step business process',
+              trigger: { type: 'manual' },
+              steps: [
+                {
+                  id: 'step_intake',
+                  name: 'Intake and Qualification',
+                  type: 'agent',
+                  agentId: 'agent_receptionist',
+                  input: { task: 'Review new customer information and assess requirements.' }
+                }
+              ],
+              status: 'active'
+            }
+          });
+          renderApp();
+        } catch (err) {
+          alert('Failed to create workflow: ' + err.message);
+        }
+      };
+    }
+
     const content = document.getElementById('work-content');
     if (!content) return;
 
@@ -5399,7 +5436,220 @@
         });
       }
 
-      // ─── SECTION 3: ACTION APPROVALS ─────────────────────────────────────────
+      // ─── SECTION 3: WORKFLOWS (Phase 4) ──────────────────────────────────
+      else if (section === 'workflows') {
+        const wsId = state.activeWorkspaceId || 'default';
+        const [wfRes, runsRes, tmplRes] = await Promise.all([
+          MesniumClient.request('mesnium.workflows.list', { workspaceId: wsId }).catch(() => ({ workflows: [] })),
+          MesniumClient.request('mesnium.workflows.runs.list', { workspaceId: wsId, limit: 15 }).catch(() => ({ runs: [] })),
+          MesniumClient.request('mesnium.workflows.templates.list', {}).catch(() => ({ templates: [] }))
+        ]);
+
+        const workflows = wfRes.workflows || [];
+        const runs = runsRes.runs || [];
+        const templates = tmplRes.templates || [];
+
+        content.innerHTML = `
+          <div class="workflows-view" style="display:flex;flex-direction:column;gap:24px;">
+            <!-- Active Workflows List -->
+            <div style="background:#111118;border:1px solid #1e1e2d;border-radius:8px;padding:20px;">
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+                <div>
+                  <h3 style="margin:0;font-size:16px;color:#fff;">Active Workflows</h3>
+                  <p style="margin:4px 0 0;font-size:13px;color:#747484;">Deterministic business processes orchestrating the Mesnium workforce.</p>
+                </div>
+              </div>
+
+              ${workflows.length === 0 ? `
+                <div class="empty-state empty-state--centered" style="padding:24px 0;">
+                  <div class="empty-icon">⚡</div>
+                  <h4 style="margin:8px 0;color:#fff;">No workflows created yet</h4>
+                  <p style="color:#747484;font-size:13px;margin:0 0 16px;">Instantiate a template below or create a custom multi-step workflow.</p>
+                </div>
+              ` : `
+                <div style="display:flex;flex-direction:column;gap:12px;">
+                  ${workflows.map(wf => `
+                    <div class="workflow-card" id="wf-card-${h(wf.id)}" style="background:#0d0d14;border:1px solid #1a1a26;border-radius:6px;padding:16px;display:flex;justify-content:space-between;align-items:center;">
+                      <div>
+                        <div style="display:flex;align-items:center;gap:8px;">
+                          <strong style="color:#fff;font-size:14px;">${h(wf.name)}</strong>
+                          <span class="badge ${wf.status === 'active' ? 'badge--ok' : 'badge--neutral'}" style="font-size:10px;">${h(wf.status.toUpperCase())}</span>
+                          <span style="font-size:11px;color:#747484;">v${h(wf.version || '1.0.0')}</span>
+                        </div>
+                        <div style="font-size:12px;color:#a0a0b0;margin-top:4px;">${h(wf.description || 'No description provided.')}</div>
+                        <div style="font-size:11px;color:#747484;margin-top:6px;display:flex;gap:12px;">
+                          <span>Steps: <strong style="color:#c5c5d2;">${(wf.steps || []).length}</strong></span>
+                          <span>Trigger: <strong style="color:#c5c5d2;">${h(wf.trigger?.type || 'manual')}</strong></span>
+                        </div>
+                      </div>
+                      <div style="display:flex;gap:8px;">
+                        <button class="btn btn-primary btn-sm" id="btn-wf-run-${h(wf.id)}">Run Now</button>
+                        <button class="btn btn-secondary btn-sm" id="btn-wf-toggle-${h(wf.id)}">
+                          ${wf.status === 'active' ? 'Pause' : 'Activate'}
+                        </button>
+                      </div>
+                    </div>
+                  `).join('')}
+                </div>
+              `}
+            </div>
+
+            <!-- Reusable Workflow Templates -->
+            <div style="background:#111118;border:1px solid #1e1e2d;border-radius:8px;padding:20px;">
+              <h3 style="margin:0 0 4px;font-size:16px;color:#fff;">Capability & Workflow Templates</h3>
+              <p style="margin:0 0 16px;font-size:13px;color:#747484;">Deploy pre-validated multi-step processes compatible with Business Packs.</p>
+              
+              <div style="display:grid;grid-template-columns:repeat(auto-fill, minmax(280px, 1fr));gap:14px;">
+                ${templates.map(tmpl => `
+                  <div style="background:#0d0d14;border:1px solid #1a1a26;border-radius:6px;padding:14px;display:flex;flex-direction:column;justify-content:space-between;">
+                    <div>
+                      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
+                        <strong style="color:#fff;font-size:13px;">${h(tmpl.name)}</strong>
+                        <span class="badge" style="background:#1c1c28;color:#a1a1aa;font-size:10px;">${h(tmpl.category)}</span>
+                      </div>
+                      <div style="font-size:12px;color:#747484;margin-bottom:12px;line-height:1.4;">${h(tmpl.description)}</div>
+                    </div>
+                    <button class="btn btn-secondary btn-sm" id="btn-tmpl-instantiate-${h(tmpl.id)}" style="width:100%;">Deploy Template</button>
+                  </div>
+                `).join('')}
+              </div>
+            </div>
+
+            <!-- Workflow Execution Runs History -->
+            <div style="background:#111118;border:1px solid #1e1e2d;border-radius:8px;padding:20px;">
+              <h3 style="margin:0 0 4px;font-size:16px;color:#fff;">Execution Runs</h3>
+              <p style="margin:0 0 16px;font-size:13px;color:#747484;">Audit trail of workflow executions, step progression, and approval checkpoints.</p>
+
+              ${runs.length === 0 ? `
+                <div style="color:#747484;font-size:13px;">No workflow runs recorded yet.</div>
+              ` : `
+                <div style="display:flex;flex-direction:column;gap:10px;">
+                  ${runs.map(r => `
+                    <div style="background:#0d0d14;border:1px solid #1a1a26;border-radius:6px;padding:12px 16px;display:flex;justify-content:space-between;align-items:center;">
+                      <div>
+                        <div style="display:flex;align-items:center;gap:8px;">
+                          <strong style="color:#fff;font-size:13px;">${h(r.workflowName || 'Workflow')}</strong>
+                          <span class="badge ${r.status === 'completed' ? 'badge--ok' : (r.status === 'waiting_approval' ? 'badge--warn' : (r.status === 'failed' ? 'badge--danger' : 'badge--neutral'))}" style="font-size:10px;">
+                            ${h((r.status || 'running').replace('_', ' ').toUpperCase())}
+                          </span>
+                          <span style="font-size:11px;color:#747484;">${r.startedAt ? new Date(r.startedAt).toLocaleTimeString() : ''}</span>
+                        </div>
+                        ${r.waitingForApproval ? `
+                          <div style="font-size:11.5px;color:#f59e0b;margin-top:4px;">
+                            ⏳ Paused at Gatekeeper boundary: Waiting for approval on ${h(r.waitingForApproval.title || 'action')}
+                          </div>
+                        ` : ''}
+                        ${r.error ? `
+                          <div style="font-size:11.5px;color:#ef4444;margin-top:4px;">
+                            Error: ${h(r.error)}
+                          </div>
+                        ` : ''}
+                        ${r.output ? `
+                          <div style="font-size:11.5px;color:#a0a0b0;margin-top:4px;">
+                            Output: ${h(r.output)}
+                          </div>
+                        ` : ''}
+                      </div>
+                      <div>
+                        ${r.status === 'running' || r.status === 'waiting_approval' ? `
+                          <button class="btn btn-secondary btn-sm" id="btn-run-cancel-${h(r.runId)}">Cancel</button>
+                        ` : ''}
+                      </div>
+                    </div>
+                  `).join('')}
+                </div>
+              `}
+            </div>
+          </div>
+        `;
+
+        // Wire buttons: Run Now, Toggle Status, Instantiate Template, Cancel Run
+        workflows.forEach(wf => {
+          const btnRun = document.getElementById(`btn-wf-run-${wf.id}`);
+          if (btnRun) {
+            btnRun.onclick = async () => {
+              btnRun.disabled = true;
+              btnRun.textContent = 'Running…';
+              try {
+                const res = await MesniumClient.request('mesnium.workflows.run', { workspaceId: wsId, workflowId: wf.id });
+                if (res?.run?.status === 'waiting_approval') {
+                  alert('Workflow paused at Gatekeeper boundary. Waiting for approval in Approvals tab.');
+                } else {
+                  alert(`Workflow completed: ${res?.run?.output || 'Success'}`);
+                }
+                renderApp();
+              } catch (err) {
+                alert(`Execution failed: ${err.message}`);
+                btnRun.disabled = false;
+                btnRun.textContent = 'Run Now';
+              }
+            };
+          }
+
+          const btnToggle = document.getElementById(`btn-wf-toggle-${wf.id}`);
+          if (btnToggle) {
+            btnToggle.onclick = async () => {
+              btnToggle.disabled = true;
+              try {
+                if (wf.status === 'active') {
+                  await MesniumClient.request('mesnium.workflows.pause', { workspaceId: wsId, workflowId: wf.id });
+                } else {
+                  await MesniumClient.request('mesnium.workflows.activate', { workspaceId: wsId, workflowId: wf.id });
+                }
+                renderApp();
+              } catch (err) {
+                alert(`Action failed: ${err.message}`);
+                btnToggle.disabled = false;
+              }
+            };
+          }
+        });
+
+        templates.forEach(tmpl => {
+          const btnInst = document.getElementById(`btn-tmpl-instantiate-${tmpl.id}`);
+          if (btnInst) {
+            btnInst.onclick = async () => {
+              btnInst.disabled = true;
+              try {
+                await MesniumClient.request('mesnium.workflows.create', {
+                  workspaceId: wsId,
+                  definition: {
+                    name: tmpl.name,
+                    description: tmpl.description,
+                    trigger: tmpl.trigger,
+                    steps: tmpl.steps,
+                    requiredCapabilities: tmpl.requiredCapabilities,
+                    status: 'active'
+                  }
+                });
+                alert(`Deployed workflow "${tmpl.name}"!`);
+                renderApp();
+              } catch (err) {
+                alert(`Failed to deploy template: ${err.message}`);
+                btnInst.disabled = false;
+              }
+            };
+          }
+        });
+
+        runs.forEach(r => {
+          const btnCancel = document.getElementById(`btn-run-cancel-${r.runId}`);
+          if (btnCancel) {
+            btnCancel.onclick = async () => {
+              btnCancel.disabled = true;
+              try {
+                await MesniumClient.request('mesnium.workflows.cancel', { workspaceId: wsId, runId: r.runId });
+                renderApp();
+              } catch (err) {
+                alert(`Cancel failed: ${err.message}`);
+                btnCancel.disabled = false;
+              }
+            };
+          }
+        });
+      }
+
+      // ─── SECTION 4: ACTION APPROVALS ─────────────────────────────────────────
       else if (section === 'approvals') {
         const appRes = await MesniumClient.request('mesnium.approvals.list').catch(() => ({ approvals: [] }));
         const approvals = appRes.approvals || [];

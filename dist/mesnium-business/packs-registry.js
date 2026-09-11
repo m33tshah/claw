@@ -19,6 +19,31 @@ export const BUILTIN_REAL_ESTATE_PACK = {
   category: 'real_estate',
   description: 'Tunes the Mesnium workforce for real estate brokerages, property teams, and residential advisory.',
   capabilityRequirements: ['calendar', 'crm'],
+  workflowTemplates: [
+    {
+      templateId: 'template_lead_followup',
+      name: 'Real Estate Lead Follow-Up & Showing Coordination',
+      description: 'Receptionist captures buyer criteria (budget, location, timeline), Sales analyzes property fit, and schedules private property tour via Gatekeeper.',
+      stepOverrides: {
+        step_intake_qualify: {
+          input: {
+            task: 'Extract prospective buyer criteria: target price range, desired bedrooms/bathrooms, preferred neighborhoods, and target move-in timeline.'
+          }
+        },
+        step_sales_prep: {
+          input: {
+            task: 'Compile matching property comps, draft tailored viewing itinerary, and formulate financing consultation notes.'
+          }
+        },
+        step_calendar_booking: {
+          input: {
+            title: 'Private Property Tour & Buyer Consultation',
+            durationMinutes: 60
+          }
+        }
+      }
+    }
+  ],
   metadata: {
     author: 'Mesnium Architecture Team',
     tags: ['real_estate', 'brokerage', 'property', 'sales']
@@ -248,6 +273,7 @@ export class MesniumPacksRegistry {
       category: p.category || 'general',
       description: p.description || '',
       capabilityRequirements: Array.isArray(p.capabilityRequirements) ? [...p.capabilityRequirements] : [],
+      workflowTemplates: Array.isArray(p.workflowTemplates) ? [...p.workflowTemplates] : [],
       metadata: p.metadata ? { ...p.metadata } : {}
     }));
   }

@@ -171,7 +171,20 @@ const coreGatewayHandlers = {
 			"mesnium.business.packs.list",
 			"mesnium.business.packs.activate",
 			"mesnium.business.packs.deactivate",
-			"mesnium.business.effective.get"
+			"mesnium.business.effective.get",
+			"mesnium.workflows.list",
+			"mesnium.workflows.get",
+			"mesnium.workflows.create",
+			"mesnium.workflows.update",
+			"mesnium.workflows.delete",
+			"mesnium.workflows.activate",
+			"mesnium.workflows.pause",
+			"mesnium.workflows.run",
+			"mesnium.workflows.runs.list",
+			"mesnium.workflows.runs.get",
+			"mesnium.workflows.cancel",
+			"mesnium.workflows.templates.list",
+			"mesnium.workflows.templates.get"
 		],
 		loadHandlers: loadMesniumHandlers
 	}),
